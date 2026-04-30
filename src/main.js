@@ -1,9 +1,11 @@
-import { TitleScene }   from './scenes/TitleScene.js'
-import { BattleScene }  from './scenes/BattleScene.js'
-import { CupGameScene } from './scenes/CupGameScene.js'
-import { UpgradeScene } from './scenes/UpgradeScene.js'
-import { GameOverScene } from './scenes/GameOverScene.js'
-import { VictoryScene } from './scenes/VictoryScene.js'
+import { TitleScene }       from './scenes/TitleScene.js'
+import { HeroSelectScene }  from './scenes/HeroSelectScene.js'
+import { BattleScene }      from './scenes/BattleScene.js'
+import { CupGameScene }     from './scenes/CupGameScene.js'
+import { UpgradeScene }     from './scenes/UpgradeScene.js'
+import { GameOverScene }    from './scenes/GameOverScene.js'
+import { VictoryScene }     from './scenes/VictoryScene.js'
+import { SaveManager }      from './game/SaveManager.js'
 
 // ─── Canvas 設定 ────────────────────────────────────────────
 const GAME_WIDTH  = 390
@@ -28,20 +30,6 @@ class Game {
     this.current = null
   }
 
-  /** 建立全新遊戲狀態 */
-  _newState() {
-    return {
-      currentWave: 1,
-      hero: {
-        name:  'Knight Cup',
-        hp:    100,
-        maxHp: 100,
-        atk:   15,
-        def:   5,
-      },
-    }
-  }
-
   /** 停止並銷毀當前場景 */
   _stop() {
     if (this.current?.stop) this.current.stop()
@@ -52,8 +40,17 @@ class Game {
 
   showTitle() {
     this._stop()
-    this.current = new TitleScene(canvas, ctx, () => {
-      this.startBattle(this._newState())
+    this.current = new TitleScene(canvas, ctx, () => this.showHeroSelect())
+    this.current.start()
+  }
+
+  showHeroSelect() {
+    this._stop()
+    this.current = new HeroSelectScene(canvas, ctx, (heroStats) => {
+      this.startBattle({
+        currentWave: 1,
+        hero: { ...heroStats },
+      })
     })
     this.current.start()
   }
@@ -70,7 +67,17 @@ class Game {
 
   _afterBattleVictory(gameState) {
     // BattleScene._victory() 已把 currentWave+1
-    // wave 16 代表剛剛打完第 15 波 → 直接勝利
+    const justFinishedWave = gameState.currentWave - 1
+
+    // 存檔最高波次
+    SaveManager.updateBestWave(justFinishedWave)
+
+    // 解鎖 Ninja Cup（打完第 5 波）
+    if (justFinishedWave >= 5) {
+      SaveManager.unlockHero('ninja')
+    }
+
+    // 全部 15 波打完 → 勝利
     if (gameState.currentWave > 15) {
       this.showVictory(gameState)
     } else {
@@ -95,18 +102,21 @@ class Game {
   }
 
   showGameOver(gameState) {
+    // 存檔已到達波次
+    const reachedWave = (gameState.currentWave || 1) - 1
+    if (reachedWave > 0) SaveManager.updateBestWave(reachedWave)
+
     this._stop()
-    this.current = new GameOverScene(canvas, ctx, gameState, () => {
-      this.showTitle()
-    })
+    this.current = new GameOverScene(canvas, ctx, gameState, () => this.showTitle())
     this.current.start()
   }
 
   showVictory(gameState) {
+    SaveManager.updateBestWave(15)
+    SaveManager.unlockHero('ninja')  // 通關必定解鎖
+
     this._stop()
-    this.current = new VictoryScene(canvas, ctx, gameState, () => {
-      this.showTitle()
-    })
+    this.current = new VictoryScene(canvas, ctx, gameState, () => this.showTitle())
     this.current.start()
   }
 }

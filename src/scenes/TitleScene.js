@@ -16,8 +16,13 @@ export class TitleScene {
     this._onClick = (e) => {
       e.preventDefault()
       this.tapAnywhere = true
-      // TODO: 切換到 'battle' 場景
-      console.log('[TitleScene] 點擊！準備進入遊戲...')
+      // 建立新遊戲狀態並進入第1波
+      const gameState = this.sm.createGameState()
+      this.sm.switchTo('battle', {
+        wave: 1,
+        heroManager: gameState.heroManager,
+        gameState,
+      })
     }
     this.canvas.addEventListener('pointerdown', this._onClick)
   }

@@ -1,3 +1,11 @@
+import { HeroManager } from '../game/HeroManager.js'
+import { TitleScene } from './TitleScene.js'
+import { BattleScene } from './BattleScene.js'
+import { CupGameScene } from './CupGameScene.js'
+import { UpgradeScene } from './UpgradeScene.js'
+import { GameOverScene } from './GameOverScene.js'
+import { VictoryScene } from './VictoryScene.js'
+
 /**
  * SceneManager
  * 負責管理所有遊戲場景的切換與更新
@@ -49,17 +57,25 @@ export class SceneManager {
     requestAnimationFrame((t) => this._loop(t))
   }
 
+  /** 建立新的遊戲狀態 */
+  createGameState() {
+    const heroManager = new HeroManager()
+    return {
+      heroManager,
+      wave: 1,
+      resource: 0,
+    }
+  }
+
   /** 遊戲主迴圈 */
   _loop(timestamp) {
     if (!this.running) return
 
-    const delta = Math.min((timestamp - this.lastTime) / 1000, 0.05) // 最大 deltaTime = 50ms
+    const delta = Math.min((timestamp - this.lastTime) / 1000, 0.05)
     this.lastTime = timestamp
 
-    // 清除畫布
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
 
-    // 更新與繪製當前場景
     if (this.currentScene) {
       this.currentScene.update(delta)
       this.currentScene.draw(this.ctx)
@@ -68,13 +84,13 @@ export class SceneManager {
     requestAnimationFrame((t) => this._loop(t))
   }
 
-  /** 動態載入所有場景 */
-  async _loadScenes() {
-    const { TitleScene } = await import('./TitleScene.js')
-    this.register('title', new TitleScene(this))
-
-    // 其他場景後續加入
-    // const { BattleScene } = await import('./BattleScene.js')
-    // this.register('battle', new BattleScene(this))
+  /** 載入所有場景 */
+  _loadScenes() {
+    this.register('title',   new TitleScene(this))
+    this.register('battle',  new BattleScene(this))
+    this.register('cupgame', new CupGameScene(this))
+    this.register('upgrade', new UpgradeScene(this))
+    this.register('gameover',new GameOverScene(this))
+    this.register('victory', new VictoryScene(this))
   }
 }

@@ -1,94 +1,36 @@
-/**
- * BattleEngine
- * 回合制戰鬥邏輯核心
- *
- * 戰鬥流程：
- *   英雄攻擊敵人 → 敵人攻擊英雄 → 判斷勝負
- *   可觸發被動：double_atk（20% 連擊）、shield（首次減傷）
- */
-export class BattleEngine {
-  /**
-   * @param {object} heroStats - { hp, atk, def, maxHp }
-   * @param {object} enemyStats - { hp, atk, def, nameZh, emoji, reward }
-   * @param {HeroManager} heroManager
-   */
-  constructor(heroStats, enemyStats, heroManager) {
-    this.hero = { ...heroStats, maxHp: heroStats.hp, currentHp: heroStats.hp }
-    this.enemy = { ...enemyStats, currentHp: enemyStats.hp }
-    this.hm = heroManager
-    this.log = []           // 戰鬥紀錄
-    this.round = 0
-    this.shieldUsed = false // 盾牆是否已消耗
-    this.state = 'idle'     // 'idle' | 'hero_turn' | 'enemy_turn' | 'win' | 'lose'
-  }
-
-  /** 計算傷害（最少 1 點） */
-  calcDamage(atk, def) {
-    return Math.max(1, atk - def)
-  }
-
-  /** 執行一個完整回合（英雄攻 → 敵人攻） */
-  doRound() {
-    if (this.state === 'win' || this.state === 'lose') return null
-
-    this.round++
-    const events = []
-
-    // ── 英雄攻擊 ──────────────────────────────────────────
-    let heroDmg = this.calcDamage(this.hero.atk, this.enemy.def)
-    this.enemy.currentHp -= heroDmg
-    events.push({ type: 'hero_attack', damage: heroDmg })
-
-    // 被動：連擊（20%）
-    if (this.hm.hasPassive('double_atk') && Math.random() < 0.2) {
-      this.enemy.currentHp -= heroDmg
-      events.push({ type: 'hero_attack', damage: heroDmg, isDouble: true })
+// BattleEngine.js — 傷害計算邏輯，與畫面無關
+export const BattleEngine = {
+  // 計算實際傷害
+  calcDamage(atk, def, critRate = 0.15, critMult = 2) {
+    const base = Math.max(1, Math.floor(atk - def * 0.5) + Math.floor(Math.random() * 5))
+    const isCrit = Math.random() < critRate
+    return {
+      damage: isCrit ? Math.floor(base * critMult) : base,
+      isCrit,
     }
+  },
 
-    if (this.enemy.currentHp <= 0) {
-      this.enemy.currentHp = 0
-      this.state = 'win'
-      events.push({ type: 'enemy_dead', reward: this.enemy.reward })
-      this._addLog(events)
-      return { events, state: this.state }
+  // 玩家攻擊目標
+  playerAttack(player, target) {
+    const { damage, isCrit } = this.calcDamage(
+      player.atk,
+      target.def,
+      player.crit || 0.15,
+      player.critMult || 2
+    )
+    target.hp = Math.max(0, target.hp - damage)
+    return { damage, isCrit, targetDead: target.hp <= 0 }
+  },
+
+  // 敵人攻擊玩家
+  enemyAttack(enemies, player) {
+    const results = []
+    for (const enemy of enemies) {
+      if (enemy.hp <= 0) continue
+      const { damage } = this.calcDamage(enemy.atk, player.def, 0.05, 1.5)
+      player.hp = Math.max(0, player.hp - damage)
+      results.push({ enemy, damage })
     }
-
-    // ── 敵人攻擊 ──────────────────────────────────────────
-    let enemyDmg = this.calcDamage(this.enemy.atk, this.hero.def)
-
-    // 被動：盾牆（首次受擊減傷 50%）
-    if (this.hm.hasPassive('shield') && !this.shieldUsed) {
-      enemyDmg = Math.floor(enemyDmg * 0.5)
-      this.shieldUsed = true
-      events.push({ type: 'shield_trigger' })
-    }
-
-    this.hero.currentHp -= enemyDmg
-    events.push({ type: 'enemy_attack', damage: enemyDmg })
-
-    if (this.hero.currentHp <= 0) {
-      this.hero.currentHp = 0
-      this.state = 'lose'
-    }
-
-    this._addLog(events)
-    return { events, state: this.state }
-  }
-
-  /** 治療英雄 */
-  heal(amount) {
-    this.hero.currentHp = Math.min(this.hero.maxHp, this.hero.currentHp + amount)
-  }
-
-  _addLog(events) {
-    this.log.push({ round: this.round, events })
-  }
-
-  get heroHpPercent() {
-    return this.hero.currentHp / this.hero.maxHp
-  }
-
-  get enemyHpPercent() {
-    return this.enemy.currentHp / this.enemy.hp
-  }
+    return { results, playerDead: player.hp <= 0 }
+  },
 }

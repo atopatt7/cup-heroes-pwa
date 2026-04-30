@@ -5,29 +5,15 @@
 // - 鎖定英雄顯示解鎖條件
 
 import { SaveManager } from '../game/SaveManager.js'
+import { HEROES }      from '../data/heroes.js'
 
-const HEROES = [
-  {
-    id:       'knight',
-    name:     'Knight Cup',
-    nameZh:   '騎士杯',
-    emoji:    '🛡️',
-    desc:     '攻防平衡，堅固可靠',
-    color:    '#3498db',
-    stats:    { hp: 100, maxHp: 100, atk: 15, def: 5 },
-    unlockHint: '預設解鎖',
-  },
-  {
-    id:       'ninja',
-    name:     'Ninja Cup',
-    nameZh:   '忍者杯',
-    emoji:    '⚔️',
-    desc:     '攻擊極高，防禦薄弱',
-    color:    '#9b59b6',
-    stats:    { hp: 70, maxHp: 70, atk: 25, def: 2 },
-    unlockHint: '通關第 5 波後解鎖',
-  },
-]
+// 顯示用附加資訊（不放進 data 層）
+const HERO_DISPLAY = {
+  knight: { nameZh: '騎士杯', emoji: '🛡️', unlockHint: '預設解鎖' },
+  ninja:  { nameZh: '忍者杯', emoji: '⚔️', unlockHint: '通關第 5 波後解鎖' },
+}
+
+const HERO_LIST = Object.values(HEROES)
 
 export class HeroSelectScene {
   constructor(canvas, ctx, onSelect) {
@@ -38,7 +24,7 @@ export class HeroSelectScene {
     this.animId   = null
     this.t        = 0
     this.lastTs   = 0
-    this.selected = 0          // 選中的英雄索引
+    this.selected = 0
     this.save     = SaveManager.load()
 
     this._loop    = this._loop.bind(this)
@@ -47,8 +33,7 @@ export class HeroSelectScene {
 
   start() {
     this.save = SaveManager.load()
-    // 預設選第一個已解鎖的英雄
-    this.selected = HEROES.findIndex(h => this.save.unlockedHeroes.includes(h.id))
+    this.selected = HERO_LIST.findIndex(h => this.save.unlockedHeroes.includes(h.id))
     if (this.selected < 0) this.selected = 0
 
     this.canvas.addEventListener('pointerdown', this._onClick)
@@ -83,7 +68,7 @@ export class HeroSelectScene {
     const startY = H * 0.22
 
     // 點擊英雄卡片
-    HEROES.forEach((hero, i) => {
+    HERO_LIST.forEach((hero, i) => {
       const cy = startY + i * (cardH + 20)
       if (tx >= cardX && tx <= cardX + cardW && ty >= cy && ty <= cy + cardH) {
         if (this.save.unlockedHeroes.includes(hero.id)) {
@@ -95,12 +80,17 @@ export class HeroSelectScene {
     // 點擊「出發」按鈕
     const btnY = H * 0.84
     if (ty > btnY - 28 && ty < btnY + 28) {
-      const hero = HEROES[this.selected]
+      const hero = HERO_LIST[this.selected]
       if (this.save.unlockedHeroes.includes(hero.id)) {
         this.stop()
         this.onSelect({
-          name:   hero.name,
-          ...hero.stats,
+          id:    hero.id,
+          name:  hero.name,
+          hp:    hero.hp,
+          maxHp: hero.maxHp,
+          atk:   hero.atk,
+          def:   hero.def,
+          crit:  hero.crit,
         })
       }
     }
@@ -135,9 +125,10 @@ export class HeroSelectScene {
     const cardX  = (W - cardW) / 2
     const startY = H * 0.22
 
-    HEROES.forEach((hero, i) => {
-      const cy        = startY + i * (cardH + 20)
-      const unlocked  = this.save.unlockedHeroes.includes(hero.id)
+    HERO_LIST.forEach((hero, i) => {
+      const display    = HERO_DISPLAY[hero.id] || {}
+      const cy         = startY + i * (cardH + 20)
+      const unlocked   = this.save.unlockedHeroes.includes(hero.id)
       const isSelected = this.selected === i && unlocked
 
       ctx.save()
@@ -163,30 +154,29 @@ export class HeroSelectScene {
       // Emoji
       ctx.font      = '52px sans-serif'
       ctx.textAlign = 'center'
-      ctx.fillText(hero.emoji, cardX + 50, cy + cardH / 2 + 18)
+      ctx.fillText(display.emoji || '⚔️', cardX + 50, cy + cardH / 2 + 18)
 
       // 名稱
       ctx.fillStyle = '#fff'
-      ctx.font      = `bold 20px sans-serif`
+      ctx.font      = 'bold 20px sans-serif'
       ctx.textAlign = 'left'
-      ctx.fillText(hero.nameZh, cardX + 95, cy + 38)
+      ctx.fillText(display.nameZh || hero.name, cardX + 95, cy + 38)
 
       // 描述
       ctx.fillStyle = '#aaa'
       ctx.font      = '14px sans-serif'
-      ctx.fillText(hero.desc, cardX + 95, cy + 60)
+      ctx.fillText(hero.description, cardX + 95, cy + 60)
 
       // 數值
-      const s = hero.stats
       ctx.fillStyle = '#7fb3d3'
       ctx.font      = '13px sans-serif'
-      ctx.fillText(`HP ${s.hp}   ATK ${s.atk}   DEF ${s.def}`, cardX + 95, cy + 82)
+      ctx.fillText(`HP ${hero.hp}   ATK ${hero.atk}   DEF ${hero.def}`, cardX + 95, cy + 82)
 
       // 解鎖狀態 / 條件
       if (!unlocked) {
         ctx.fillStyle = '#e67e22'
         ctx.font      = 'bold 13px sans-serif'
-        ctx.fillText(`🔒 ${hero.unlockHint}`, cardX + 95, cy + 106)
+        ctx.fillText(`🔒 ${display.unlockHint || ''}`, cardX + 95, cy + 106)
       } else if (isSelected) {
         ctx.fillStyle = hero.color
         ctx.font      = 'bold 13px sans-serif'
@@ -197,7 +187,7 @@ export class HeroSelectScene {
     })
 
     // 出發按鈕
-    const pulse  = 0.93 + Math.sin(this.t * 3.5) * 0.07
+    const pulse = 0.93 + Math.sin(this.t * 3.5) * 0.07
     ctx.save()
     ctx.translate(W / 2, H * 0.84)
     ctx.scale(pulse, pulse)

@@ -5,6 +5,8 @@
 // - 所有敵人死亡後 → 進入杯球台
 // - 玩家 HP 歸零 → 遊戲結束
 
+import { BattleEngine } from '../game/BattleEngine.js'
+
 export class BattleScene {
   constructor(canvas, ctx, gameState, onVictory, onDefeat) {
     this.canvas = canvas;
@@ -122,15 +124,9 @@ export class BattleScene {
       return;
     }
 
-    const dmg = Math.max(1, Math.floor(this.player.atk - target.def * 0.5) + Math.floor(Math.random() * 5));
-    target.hp = Math.max(0, target.hp - dmg);
+    const { damage, isCrit } = BattleEngine.playerAttack(this.player, target);
 
-    // 暴擊判定
-    const isCrit = Math.random() < 0.15;
-    const finalDmg = isCrit ? dmg * 2 : dmg;
-    target.hp = Math.max(0, target.hp + dmg - finalDmg); // 修正
-
-    this._addFloat(target.x, target.y - target.size / 2, isCrit ? `暴擊！${finalDmg}` : `-${dmg}`, isCrit ? '#ffd700' : '#ff6b6b');
+    this._addFloat(target.x, target.y - target.size / 2, isCrit ? `暴擊！${damage}` : `-${damage}`, isCrit ? '#ffd700' : '#ff6b6b');
     this.shakeTarget = 'enemy';
     this.shakeTimer = 8;
 
@@ -151,14 +147,13 @@ export class BattleScene {
     const alive = this.enemies.filter(e => e.hp > 0);
     if (alive.length === 0) { this._victory(); return; }
 
-    // 每隻存活的敵人攻擊玩家
-    for (const enemy of alive) {
-      const dmg = Math.max(1, Math.floor(enemy.atk - this.player.def * 0.4) + Math.floor(Math.random() * 4));
-      this.player.hp = Math.max(0, this.player.hp - dmg);
+    const { results, playerDead } = BattleEngine.enemyAttack(alive, this.player);
+
+    for (const { damage } of results) {
       this._addFloat(
         this.player.x + (Math.random() - 0.5) * 30,
         this.player.y - 40,
-        `-${dmg}`,
+        `-${damage}`,
         '#ff4444'
       );
     }
@@ -166,7 +161,7 @@ export class BattleScene {
     this.shakeTarget = 'player';
     this.shakeTimer = 8;
 
-    if (this.player.hp <= 0) {
+    if (playerDead) {
       this._defeat();
     } else {
       this.phase = 'player_attack';

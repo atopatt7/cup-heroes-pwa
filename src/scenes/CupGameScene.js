@@ -5,6 +5,9 @@
 // - 隔板上有乘數標籤，球經過會加乘球數
 // - 最終球流進下方杯子收集，顯示總球數
 // - 所有球落定後 → 進入升級場景
+
+import { PhysicsEngine } from '../game/PhysicsEngine.js'
+
 export class CupGameScene {
   constructor(canvas, ctx, gameState, onComplete) {
     this.canvas = canvas
@@ -152,39 +155,14 @@ export class CupGameScene {
     for (const b of this.boards) {
       if (b.hitTimer > 0) b.hitTimer--
     }
-    const gravity = 0.4
-    const bounce  = 0.3
     for (const ball of this.balls) {
       if (ball.settled) continue
-      ball.vy += gravity
-      ball.vx *= 0.995
-      ball.x  += ball.vx
-      ball.y  += ball.vy
-      // 左右牆
-      if (ball.x - ball.r < 18)      { ball.x = 18 + ball.r; ball.vx *= -bounce }
-      if (ball.x + ball.r > W - 18)  { ball.x = W - 18 - ball.r; ball.vx *= -bounce }
+
+      PhysicsEngine.updateBall(ball, W)
+
       // 碰隔板
       for (const board of this.boards) {
-        if (ball._hitBoards.has(board)) continue
-        const bLeft  = board.x
-        const bRight = board.x + board.width
-        const bY     = board.y
-        if (
-          ball.vy > 0 &&
-          ball.y + ball.r >= bY - 6 &&
-          ball.y + ball.r <= bY + 14 &&
-          ball.x >= bLeft - ball.r &&
-          ball.x <= bRight + ball.r
-        ) {
-          ball.y = bY - 6 - ball.r
-          ball.vy *= -bounce
-          const mid = bLeft + board.width / 2
-          if (ball.x < mid) {
-            ball.vx = -2.5 - Math.random() * 2
-          } else {
-            ball.vx =  2.5 + Math.random() * 2
-          }
-          ball._hitBoards.add(board)
+        if (PhysicsEngine.checkBoardCollision(ball, board)) {
           ball.multiplier *= board.multiplier
           board.hitTimer = 12
           this.floats.push({
@@ -195,16 +173,11 @@ export class CupGameScene {
           })
         }
       }
+
       // 落入下方杯子
-      const cup = this.collectCup
-      const cupLeft  = cup.x - cup.width / 2
-      const cupRight = cup.x + cup.width / 2
-      const cupTop   = cup.y - cup.height / 2
-      if (
-        ball.y + ball.r >= cupTop &&
-        ball.x >= cupLeft &&
-        ball.x <= cupRight
-      ) {
+      if (PhysicsEngine.checkCupCollision(ball, this.collectCup)) {
+        const cup = this.collectCup
+        const cupTop = cup.y - cup.height / 2
         ball.settled = true
         ball.x = cup.x + (Math.random() - 0.5) * (cup.width * 0.5)
         ball.y = cupTop + ball.r + Math.random() * 8
@@ -223,6 +196,7 @@ export class CupGameScene {
           })
         }
       }
+
       // 掉出底部
       if (ball.y > H + 20) {
         ball.settled = true

@@ -1,3 +1,6 @@
+import { T }                        from '../utils/theme.js'
+import { drawSky, drawGround, drawBtn, rrect } from '../utils/drawHelpers.js'
+
 export class TitleScene {
   constructor(canvas, ctx, onStart) {
     this.canvas  = canvas
@@ -7,21 +10,24 @@ export class TitleScene {
     this.t       = 0
     this.lastTs  = 0
 
-    // 星空粒子
-    this.stars = Array.from({ length: 60 }, () => ({
+    // 雲朵（x 會緩慢右移）
+    this.clouds = [
+      { x: 60,  y: 90,  scale: 0.9,  speed: 12 },
+      { x: 200, y: 55,  scale: 1.1,  speed: 8  },
+      { x: 320, y: 110, scale: 0.75, speed: 14 },
+    ]
+
+    // 彩帶 particle
+    this.confetti = Array.from({ length: 28 }, (_, i) => ({
       x:     Math.random() * canvas.width,
-      y:     Math.random() * canvas.height,
-      r:     Math.random() * 1.8 + 0.4,
-      phase: Math.random() * Math.PI * 2,
-      speed: Math.random() * 0.6 + 0.3,
+      y:     Math.random() * canvas.height * 0.6,
+      vx:    (Math.random() - 0.5) * 22,
+      vy:    15 + Math.random() * 25,
+      r:     3 + Math.random() * 4,
+      color: ['#f5c518','#e53935','#43a047','#1e88e5','#8e24aa','#fb8c00'][i % 6],
+      rot:   Math.random() * Math.PI * 2,
+      rotV:  (Math.random() - 0.5) * 4,
     }))
-
-    // 流星
-    this.meteors = []
-    this.meteorTimer = 0
-
-    // 上升粒子（杯子周圍蒸氣）
-    this.particles = []
 
     this._loop    = this._loop.bind(this)
     this._onClick = (e) => { e.preventDefault(); this.stop(); this.onStart() }
@@ -39,7 +45,7 @@ export class TitleScene {
 
   _loop(ts) {
     const dt = Math.min((ts - this.lastTs) / 1000, 0.05)
-    this.t += dt
+    this.t   += dt
     this.lastTs = ts
     this._update(dt)
     this._draw()
@@ -50,191 +56,207 @@ export class TitleScene {
     const W = this.canvas.width
     const H = this.canvas.height
 
-    // 流星
-    this.meteorTimer += dt
-    if (this.meteorTimer > 2.5 + Math.random() * 3) {
-      this.meteorTimer = 0
-      this.meteors.push({
-        x:  Math.random() * W * 0.7,
-        y:  Math.random() * H * 0.3,
-        vx: 280 + Math.random() * 120,
-        vy: 180 + Math.random() * 80,
-        life: 1,
-        len: 80 + Math.random() * 60,
-      })
-    }
-    this.meteors = this.meteors.filter(m => m.life > 0)
-    for (const m of this.meteors) {
-      m.x += m.vx * dt
-      m.y += m.vy * dt
-      m.life -= dt * 1.8
+    // 雲朵漂移（到邊界就從左側重新出現）
+    for (const c of this.clouds) {
+      c.x += c.speed * dt
+      if (c.x > W + 120) c.x = -120
     }
 
-    // 上升粒子
-    if (this.t % 0.15 < dt) {
-      const cupX = W / 2
-      const cupY = H * 0.33
-      this.particles.push({
-        x:    cupX + (Math.random() - 0.5) * 40,
-        y:    cupY,
-        vx:   (Math.random() - 0.5) * 18,
-        vy:   -(18 + Math.random() * 22),
-        r:    2 + Math.random() * 3,
-        life: 1,
-      })
-    }
-    this.particles = this.particles.filter(p => p.life > 0)
-    for (const p of this.particles) {
-      p.x  += p.vx * dt
-      p.y  += p.vy * dt
-      p.vx *= 0.97
-      p.life -= dt * 1.1
+    // 彩帶降落
+    for (const p of this.confetti) {
+      p.x   += p.vx * dt
+      p.y   += p.vy * dt
+      p.rot += p.rotV * dt
+      if (p.y > H + 20) {
+        p.y  = -10
+        p.x  = Math.random() * W
+      }
     }
   }
 
   _draw() {
     const ctx = this.ctx
-    const W = this.canvas.width
-    const H = this.canvas.height
+    const W   = this.canvas.width
+    const H   = this.canvas.height
+    const groundY = H * 0.76
 
-    // ── 背景 ──────────────────────────────────────────────
-    const bg = ctx.createLinearGradient(0, 0, 0, H)
-    bg.addColorStop(0,   '#0d0d1e')
-    bg.addColorStop(0.5, '#1a1a2e')
-    bg.addColorStop(1,   '#0f1f3d')
-    ctx.fillStyle = bg
-    ctx.fillRect(0, 0, W, H)
+    // ── 天空 ──────────────────────────────────────────────
+    drawSky(ctx, W, H, this.clouds)
 
-    // ── 星空 ──────────────────────────────────────────────
-    for (const s of this.stars) {
-      const a = 0.25 + Math.sin(this.t * s.speed + s.phase) * 0.35
-      ctx.globalAlpha = a
-      ctx.fillStyle = '#ffffff'
-      ctx.beginPath()
-      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2)
-      ctx.fill()
+    // ── 草地 / 地面 ───────────────────────────────────────
+    drawGround(ctx, W, H, groundY)
+
+    // ── 彩帶 ──────────────────────────────────────────────
+    for (const p of this.confetti) {
+      ctx.save()
+      ctx.translate(p.x, p.y)
+      ctx.rotate(p.rot)
+      ctx.fillStyle = p.color
+      ctx.globalAlpha = 0.75
+      ctx.fillRect(-p.r, -p.r / 2, p.r * 2, p.r)
+      ctx.restore()
     }
     ctx.globalAlpha = 1
 
-    // ── 流星 ──────────────────────────────────────────────
-    for (const m of this.meteors) {
-      const alpha = m.life * 0.85
-      ctx.globalAlpha = alpha
-      ctx.strokeStyle = '#ffffff'
-      ctx.lineWidth   = 1.5
-      ctx.beginPath()
-      const nx = -m.vx / Math.hypot(m.vx, m.vy)
-      const ny = -m.vy / Math.hypot(m.vx, m.vy)
-      ctx.moveTo(m.x, m.y)
-      ctx.lineTo(m.x + nx * m.len * m.life, m.y + ny * m.len * m.life)
-      const mg = ctx.createLinearGradient(m.x, m.y, m.x + nx * m.len, m.y + ny * m.len)
-      mg.addColorStop(0, `rgba(255,255,255,${alpha})`)
-      mg.addColorStop(1, 'rgba(255,255,255,0)')
-      ctx.strokeStyle = mg
-      ctx.stroke()
-    }
-    ctx.globalAlpha = 1
+    const bounce = Math.sin(this.t * 2.5) * 8
 
-    // ── 底部光暈 ──────────────────────────────────────────
-    const glow = ctx.createRadialGradient(W / 2, H * 0.35, 0, W / 2, H * 0.35, W * 0.55)
-    glow.addColorStop(0,   'rgba(90,50,180,0.18)')
-    glow.addColorStop(0.5, 'rgba(40,20,100,0.10)')
-    glow.addColorStop(1,   'rgba(0,0,0,0)')
-    ctx.fillStyle = glow
-    ctx.fillRect(0, 0, W, H)
+    // ── 標題牌（木板風）─────────────────────────────────
+    const signW = W * 0.84
+    const signH = 110
+    const signX = (W - signW) / 2
+    const signY = H * 0.10
 
-    const bounce = Math.sin(this.t * 2.2) * 7
-
-    // ── 蒸氣粒子 ──────────────────────────────────────────
-    for (const p of this.particles) {
-      ctx.globalAlpha = p.life * 0.35
-      ctx.fillStyle   = '#c8a0ff'
-      ctx.beginPath()
-      ctx.arc(p.x, p.y, p.r * p.life, 0, Math.PI * 2)
-      ctx.fill()
-    }
-    ctx.globalAlpha = 1
-
-    ctx.textAlign = 'center'
-
-    // ── 杯子 emoji ────────────────────────────────────────
-    ctx.shadowColor = '#b060ff'
-    ctx.shadowBlur  = 36
-    ctx.font = '80px sans-serif'
-    ctx.fillStyle = '#ffffff'
-    ctx.fillText('☕', W / 2, H * 0.33 + bounce)
-    ctx.shadowBlur = 0
-
-    // ── 主標題 ────────────────────────────────────────────
-    // 光暈層
-    ctx.shadowColor = '#f5c518'
-    ctx.shadowBlur  = 28
-    ctx.fillStyle   = '#f5c518'
-    ctx.font        = 'bold 50px sans-serif'
-    ctx.fillText('Cup Heroes', W / 2, H * 0.46 + bounce * 0.5)
-
-    // 白色邊框字（疊加）
-    ctx.shadowBlur  = 0
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)'
-    ctx.lineWidth   = 2
-    ctx.strokeText('Cup Heroes', W / 2, H * 0.46 + bounce * 0.5)
-
-    // ── 副標題 ────────────────────────────────────────────
-    ctx.fillStyle = '#9ab0cc'
-    ctx.font      = '17px sans-serif'
-    ctx.fillText('回合制杯子英雄冒險', W / 2, H * 0.535)
-
-    // ── 裝飾線 ────────────────────────────────────────────
-    const lineY = H * 0.565
-    const lineA = 0.3 + Math.sin(this.t * 1.2) * 0.15
-    ctx.globalAlpha = lineA
-    ctx.strokeStyle = '#5a4090'
-    ctx.lineWidth   = 1
-    ctx.beginPath()
-    ctx.moveTo(W * 0.15, lineY); ctx.lineTo(W * 0.85, lineY)
-    ctx.stroke()
-    ctx.globalAlpha = 1
-
-    // ── 點擊提示（閃爍）──────────────────────────────────
-    const blink = 0.4 + Math.sin(this.t * 2.8) * 0.45
-    ctx.globalAlpha = blink
-    // 按鈕背景
-    const btnW = 200, btnH = 46
-    const btnX = W / 2 - btnW / 2
-    const btnY = H * 0.70 - btnH / 2
-    const btnG = ctx.createLinearGradient(btnX, btnY, btnX, btnY + btnH)
-    btnG.addColorStop(0, 'rgba(90,50,180,0.55)')
-    btnG.addColorStop(1, 'rgba(50,20,100,0.55)')
-    ctx.fillStyle = btnG
-    this._rrect(ctx, btnX, btnY, btnW, btnH, 23)
+    // 木板陰影
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'
+    rrect(ctx, signX + 5, signY + 8 + bounce * 0.3, signW, signH, 14)
     ctx.fill()
-    ctx.strokeStyle = 'rgba(180,120,255,0.6)'
-    ctx.lineWidth   = 1.5
+    // 木板本體
+    const woodG = ctx.createLinearGradient(signX, signY, signX, signY + signH)
+    woodG.addColorStop(0, '#d4956a')
+    woodG.addColorStop(0.4, '#c07848')
+    woodG.addColorStop(1,   '#8a4e22')
+    ctx.fillStyle = woodG
+    rrect(ctx, signX, signY + bounce * 0.3, signW, signH, 14)
+    ctx.fill()
+    // 木板高光
+    ctx.fillStyle = 'rgba(255,255,255,0.12)'
+    rrect(ctx, signX + 4, signY + bounce * 0.3 + 4, signW - 8, signH / 3, 10)
+    ctx.fill()
+    // 木板邊框
+    ctx.strokeStyle = T.woodDark; ctx.lineWidth = 3
+    rrect(ctx, signX, signY + bounce * 0.3, signW, signH, 14)
     ctx.stroke()
-    ctx.globalAlpha = 1
+    // 釘子
+    for (const nx of [signX + 18, signX + signW - 18]) {
+      for (const ny of [signY + bounce * 0.3 + 14, signY + bounce * 0.3 + signH - 14]) {
+        ctx.fillStyle = '#5a3a1a'
+        ctx.beginPath(); ctx.arc(nx, ny, 5, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = '#c8a060'
+        ctx.beginPath(); ctx.arc(nx - 1, ny - 1, 3, 0, Math.PI * 2); ctx.fill()
+      }
+    }
 
-    ctx.globalAlpha = blink
-    ctx.fillStyle   = '#e8d8ff'
-    ctx.font        = 'bold 18px sans-serif'
-    ctx.fillText('▶  點擊開始', W / 2, H * 0.70 + 6)
-    ctx.globalAlpha = 1
+    // 主標題文字
+    ctx.textAlign = 'center'
+    ctx.shadowColor = T.woodDark; ctx.shadowBlur = 6
+    ctx.fillStyle   = T.gold
+    ctx.font        = 'bold 42px sans-serif'
+    ctx.fillText('Cup Heroes', W / 2, signY + bounce * 0.3 + 52)
+    ctx.shadowBlur  = 0
+    ctx.fillStyle   = T.textWhite
+    ctx.font        = '17px sans-serif'
+    ctx.fillText('⚔️ 杯子英雄的冒險 ⚔️', W / 2, signY + bounce * 0.3 + 80)
+
+    // ── 主角杯子（站在草地上）────────────────────────────
+    this._drawHeroCup(ctx, W / 2, groundY - 12, bounce)
+
+    // ── 出發按鈕 ──────────────────────────────────────────
+    const btnPulse = 0.93 + Math.sin(this.t * 3.2) * 0.07
+    ctx.save()
+    ctx.translate(W / 2, H * 0.90)
+    ctx.scale(btnPulse, btnPulse)
+    drawBtn(ctx, 0, 0, 220, 56, '▶  點擊開始', T.btnRed, T.btnRedDark, 28)
+    ctx.restore()
 
     // ── 版本號 ────────────────────────────────────────────
-    ctx.fillStyle = '#2a2a4a'
-    ctx.font      = '12px sans-serif'
-    ctx.fillText('v0.3.0', W / 2, H - 20)
+    ctx.fillStyle   = 'rgba(0,0,0,0.35)'
+    ctx.font        = '12px sans-serif'
+    ctx.textAlign   = 'center'
+    ctx.fillText('v0.3.0', W / 2, H - 12)
   }
 
-  _rrect(ctx, x, y, w, h, r) {
+  _drawHeroCup(ctx, x, groundY, bounce) {
+    const y = groundY + bounce * 0.6
+
+    // 陰影
+    ctx.fillStyle   = 'rgba(0,0,0,0.18)'
     ctx.beginPath()
-    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y)
-    ctx.arcTo(x + w, y, x + w, y + r, r)
-    ctx.lineTo(x + w, y + h - r)
-    ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
-    ctx.lineTo(x + r, y + h)
-    ctx.arcTo(x, y + h, x, y + h - r, r)
-    ctx.lineTo(x, y + r)
-    ctx.arcTo(x, y, x + r, y, r)
+    ctx.ellipse(x, groundY + 14, 28, 8, 0, 0, Math.PI * 2)
+    ctx.fill()
+
+    // 杯身（梯形）
+    const cupW = 50, cupH = 60, cupBotW = 38
+    const topX = x - cupW / 2
+    const botX = x - cupBotW / 2
+    const topY = y - cupH
+    const botY = y
+
+    const cupG = ctx.createLinearGradient(topX, topY, topX + cupW, topY)
+    cupG.addColorStop(0,   '#2090f0')
+    cupG.addColorStop(0.45,'#50b8ff')
+    cupG.addColorStop(1,   '#0060c8')
+    ctx.fillStyle = cupG
+    ctx.beginPath()
+    ctx.moveTo(topX, topY)
+    ctx.lineTo(topX + cupW, topY)
+    ctx.lineTo(botX + cupBotW, botY)
+    ctx.lineTo(botX, botY)
     ctx.closePath()
+    ctx.fill()
+
+    // 杯身高光
+    ctx.fillStyle = 'rgba(255,255,255,0.28)'
+    ctx.beginPath()
+    ctx.moveTo(topX + 6, topY + 4)
+    ctx.lineTo(topX + cupW * 0.45, topY + 4)
+    ctx.lineTo(botX + cupBotW * 0.42, botY - 6)
+    ctx.lineTo(botX + 6, botY - 6)
+    ctx.closePath()
+    ctx.fill()
+
+    // 杯口
+    const rimG = ctx.createLinearGradient(topX, topY, topX, topY + 10)
+    rimG.addColorStop(0, '#70d0ff')
+    rimG.addColorStop(1, '#1880d0')
+    ctx.fillStyle = rimG
+    ctx.fillRect(topX - 4, topY - 4, cupW + 8, 12)
+    ctx.strokeStyle = '#005faa'; ctx.lineWidth = 1.5
+    ctx.strokeRect(topX - 4, topY - 4, cupW + 8, 12)
+
+    // 臉（眼睛 + 嘴巴）
+    const eyeY = topY + cupH * 0.38
+    // 眼白
+    for (const ex of [x - 10, x + 10]) {
+      ctx.fillStyle = '#fff'
+      ctx.beginPath(); ctx.ellipse(ex, eyeY, 7, 7, 0, 0, Math.PI * 2); ctx.fill()
+      // 眼珠
+      ctx.fillStyle = '#1a3a7a'
+      ctx.beginPath(); ctx.ellipse(ex + 1, eyeY + 1, 4, 4, 0, 0, Math.PI * 2); ctx.fill()
+      // 高光
+      ctx.fillStyle = '#fff'
+      ctx.beginPath(); ctx.arc(ex + 2, eyeY - 1, 2, 0, Math.PI * 2); ctx.fill()
+    }
+    // 嘴巴
+    ctx.strokeStyle = '#1a3a7a'; ctx.lineWidth = 2.5
+    ctx.beginPath()
+    ctx.arc(x, eyeY + 14, 9, 0.15 * Math.PI, 0.85 * Math.PI)
+    ctx.stroke()
+
+    // 劍
+    ctx.save()
+    ctx.translate(x + 34, y - 38)
+    ctx.rotate(-0.45)
+    // 刀身
+    ctx.fillStyle = '#d8e8f8'
+    ctx.fillRect(-3, -28, 6, 34)
+    ctx.strokeStyle = '#8899aa'; ctx.lineWidth = 1
+    ctx.strokeRect(-3, -28, 6, 34)
+    // 護手
+    ctx.fillStyle = T.gold
+    ctx.fillRect(-9, 0, 18, 5)
+    // 握柄
+    ctx.fillStyle = T.woodMid
+    ctx.fillRect(-2.5, 5, 5, 14)
+    ctx.restore()
+
+    // 杯體輪廓
+    ctx.strokeStyle = '#005faa'; ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(topX, topY)
+    ctx.lineTo(topX + cupW, topY)
+    ctx.lineTo(botX + cupBotW, botY)
+    ctx.lineTo(botX, botY)
+    ctx.closePath()
+    ctx.stroke()
   }
 }

@@ -1,41 +1,39 @@
-// HeroSelectScene.js
-// 英雄選擇畫面
-// - 顯示所有英雄卡片（Knight Cup 預設解鎖，Ninja Cup 需解鎖）
-// - 玩家點擊已解鎖的英雄後點「出發」進入戰鬥
-// - 鎖定英雄顯示解鎖條件
+import { SaveManager }                              from '../game/SaveManager.js'
+import { HEROES }                                  from '../data/heroes.js'
+import { T }                                       from '../utils/theme.js'
+import { drawSky, drawGround, drawBtn, rrect }     from '../utils/drawHelpers.js'
 
-import { SaveManager } from '../game/SaveManager.js'
-import { HEROES }      from '../data/heroes.js'
-
-// 顯示用附加資訊（不放進 data 層）
 const HERO_DISPLAY = {
-  knight: { nameZh: '騎士杯', emoji: '🛡️', unlockHint: '預設解鎖' },
-  ninja:  { nameZh: '忍者杯', emoji: '⚔️', unlockHint: '通關第 5 波後解鎖' },
+  knight: { nameZh: '騎士杯', emoji: '🛡️', unlockHint: '預設解鎖',       bgTop: '#1a80e0', bgBot: '#0055aa' },
+  ninja:  { nameZh: '忍者杯', emoji: '⚔️', unlockHint: '通關第5波後解鎖', bgTop: '#7c3aed', bgBot: '#4a1a9a' },
 }
-
 const HERO_LIST = Object.values(HEROES)
+
+// 簡易雲朵配置（靜態）
+const CLOUDS = [
+  { x: 50,  y: 70,  scale: 0.8  },
+  { x: 240, y: 45,  scale: 1.0  },
+  { x: 340, y: 90,  scale: 0.7  },
+]
 
 export class HeroSelectScene {
   constructor(canvas, ctx, onSelect) {
     this.canvas   = canvas
     this.ctx      = ctx
-    this.onSelect = onSelect   // (heroStats) => void
-
+    this.onSelect = onSelect
     this.animId   = null
     this.t        = 0
     this.lastTs   = 0
     this.selected = 0
     this.save     = SaveManager.load()
-
     this._loop    = this._loop.bind(this)
     this._onClick = this._onClick.bind(this)
   }
 
   start() {
-    this.save = SaveManager.load()
+    this.save     = SaveManager.load()
     this.selected = HERO_LIST.findIndex(h => this.save.unlockedHeroes.includes(h.id))
     if (this.selected < 0) this.selected = 0
-
     this.canvas.addEventListener('pointerdown', this._onClick)
     this.animId = requestAnimationFrame(this._loop)
   }
@@ -59,39 +57,24 @@ export class HeroSelectScene {
     const scaleY = this.canvas.height / rect.height
     const tx = (e.clientX - rect.left) * scaleX
     const ty = (e.clientY - rect.top)  * scaleY
-
-    const W      = this.canvas.width
-    const H      = this.canvas.height
-    const cardW  = W * 0.80
-    const cardH  = 140
-    const cardX  = (W - cardW) / 2
+    const W  = this.canvas.width
+    const H  = this.canvas.height
+    const cardW = W * 0.86, cardH = 130, cardX = (W - cardW) / 2
     const startY = H * 0.22
 
-    // 點擊英雄卡片
     HERO_LIST.forEach((hero, i) => {
-      const cy = startY + i * (cardH + 20)
+      const cy = startY + i * (cardH + 16)
       if (tx >= cardX && tx <= cardX + cardW && ty >= cy && ty <= cy + cardH) {
-        if (this.save.unlockedHeroes.includes(hero.id)) {
-          this.selected = i
-        }
+        if (this.save.unlockedHeroes.includes(hero.id)) this.selected = i
       }
     })
 
-    // 點擊「出發」按鈕
-    const btnY = H * 0.84
-    if (ty > btnY - 28 && ty < btnY + 28) {
+    const btnY = H * 0.86
+    if (ty > btnY - 30 && ty < btnY + 30) {
       const hero = HERO_LIST[this.selected]
       if (this.save.unlockedHeroes.includes(hero.id)) {
         this.stop()
-        this.onSelect({
-          id:    hero.id,
-          name:  hero.name,
-          hp:    hero.hp,
-          maxHp: hero.maxHp,
-          atk:   hero.atk,
-          def:   hero.def,
-          crit:  hero.crit,
-        })
+        this.onSelect({ id: hero.id, name: hero.name, hp: hero.hp, maxHp: hero.maxHp, atk: hero.atk, def: hero.def, crit: hero.crit })
       }
     }
   }
@@ -101,86 +84,112 @@ export class HeroSelectScene {
     const W   = this.canvas.width
     const H   = this.canvas.height
 
-    // 背景
-    const bg = ctx.createLinearGradient(0, 0, 0, H)
-    bg.addColorStop(0, '#1a1a2e')
-    bg.addColorStop(1, '#0f3460')
-    ctx.fillStyle = bg
-    ctx.fillRect(0, 0, W, H)
+    // 天空背景
+    drawSky(ctx, W, H, CLOUDS)
+    // 地面
+    drawGround(ctx, W, H, H * 0.78)
 
-    ctx.textAlign = 'center'
+    // 標題牌
+    ctx.textAlign   = 'center'
+    const panelY    = H * 0.04
+    ctx.fillStyle   = 'rgba(0,0,0,0.32)'
+    rrect(ctx, W * 0.1 + 3, panelY + 4, W * 0.8, 50, 14); ctx.fill()
+    const woodG = ctx.createLinearGradient(W*0.1, panelY, W*0.1, panelY+50)
+    woodG.addColorStop(0, T.woodLight); woodG.addColorStop(1, T.woodDark)
+    ctx.fillStyle = woodG
+    rrect(ctx, W * 0.1, panelY, W * 0.8, 50, 14); ctx.fill()
+    ctx.strokeStyle = T.woodDark; ctx.lineWidth = 2
+    rrect(ctx, W * 0.1, panelY, W * 0.8, 50, 14); ctx.stroke()
 
-    // 標題
-    ctx.fillStyle = '#f5c518'
-    ctx.font      = 'bold 26px sans-serif'
-    ctx.fillText('選擇英雄', W / 2, 46)
-
-    ctx.fillStyle = '#888'
-    ctx.font      = '14px sans-serif'
-    ctx.fillText(`最高紀錄：Wave ${this.save.bestWave || 0}`, W / 2, 70)
+    ctx.fillStyle = T.gold; ctx.font = 'bold 24px sans-serif'
+    ctx.fillText('選擇英雄', W / 2, panelY + 22)
+    ctx.fillStyle = T.textWhite; ctx.font = '13px sans-serif'
+    ctx.fillText(`最高記錄：Wave ${this.save.bestWave || 0}`, W / 2, panelY + 42)
 
     // 英雄卡片
-    const cardW  = W * 0.80
-    const cardH  = 140
-    const cardX  = (W - cardW) / 2
+    const cardW = W * 0.86, cardH = 130, cardX = (W - cardW) / 2
     const startY = H * 0.22
 
     HERO_LIST.forEach((hero, i) => {
-      const display    = HERO_DISPLAY[hero.id] || {}
-      const cy         = startY + i * (cardH + 20)
+      const disp       = HERO_DISPLAY[hero.id] || {}
+      const cy         = startY + i * (cardH + 16)
       const unlocked   = this.save.unlockedHeroes.includes(hero.id)
-      const isSelected = this.selected === i && unlocked
+      const isSel      = this.selected === i && unlocked
 
       ctx.save()
-      if (!unlocked) ctx.globalAlpha = 0.45
+      if (!unlocked) ctx.globalAlpha = 0.55
 
-      // 卡片背景
-      if (isSelected) {
-        ctx.shadowColor = hero.color
-        ctx.shadowBlur  = 20
-      }
+      // 卡片陰影
+      ctx.fillStyle = 'rgba(0,0,0,0.22)'
+      rrect(ctx, cardX + 4, cy + 6, cardW, cardH, 16); ctx.fill()
+
+      // 卡片背景漸層
       const cg = ctx.createLinearGradient(cardX, cy, cardX, cy + cardH)
-      cg.addColorStop(0, isSelected ? hero.color + '44' : 'rgba(20,20,40,0.95)')
-      cg.addColorStop(1, isSelected ? hero.color + '11' : 'rgba(10,10,25,0.95)')
+      if (isSel) {
+        cg.addColorStop(0, disp.bgTop || T.heroBlue)
+        cg.addColorStop(1, disp.bgBot || T.heroBlueShadow)
+      } else {
+        cg.addColorStop(0, '#e8f4ff')
+        cg.addColorStop(1, '#c8dff5')
+      }
       ctx.fillStyle = cg
-      this._rrect(ctx, cardX, cy, cardW, cardH, 14)
-      ctx.fill()
+      rrect(ctx, cardX, cy, cardW, cardH, 16); ctx.fill()
 
-      ctx.strokeStyle = isSelected ? hero.color : hero.color + '66'
-      ctx.lineWidth   = isSelected ? 2.5 : 1.5
-      ctx.shadowBlur  = 0
-      ctx.stroke()
+      // 選中高光邊框
+      if (isSel) {
+        ctx.shadowColor = T.goldLight; ctx.shadowBlur = 18
+        ctx.strokeStyle = T.gold; ctx.lineWidth = 3
+      } else {
+        ctx.strokeStyle = '#a8c8e8'; ctx.lineWidth = 1.5
+      }
+      rrect(ctx, cardX, cy, cardW, cardH, 16); ctx.stroke()
+      ctx.shadowBlur = 0
+
+      // 彩色左側色條
+      const barG = ctx.createLinearGradient(cardX, cy, cardX, cy + cardH)
+      barG.addColorStop(0, disp.bgTop || T.heroBlue)
+      barG.addColorStop(1, disp.bgBot || T.heroBlueShadow)
+      ctx.fillStyle = barG
+      rrect(ctx, cardX, cy, 10, cardH, 16); ctx.fill()
 
       // Emoji
-      ctx.font      = '52px sans-serif'
-      ctx.textAlign = 'center'
-      ctx.fillText(display.emoji || '⚔️', cardX + 50, cy + cardH / 2 + 18)
+      ctx.font = '44px sans-serif'; ctx.textAlign = 'center'
+      ctx.fillText(disp.emoji || '⚔️', cardX + 46, cy + cardH / 2 + 16)
 
-      // 名稱
-      ctx.fillStyle = '#fff'
-      ctx.font      = 'bold 20px sans-serif'
-      ctx.textAlign = 'left'
-      ctx.fillText(display.nameZh || hero.name, cardX + 95, cy + 38)
+      // 英雄名稱
+      ctx.fillStyle  = isSel ? '#fff' : T.textDark
+      ctx.font       = 'bold 20px sans-serif'
+      ctx.textAlign  = 'left'
+      ctx.fillText(disp.nameZh || hero.name, cardX + 82, cy + 34)
 
       // 描述
-      ctx.fillStyle = '#aaa'
-      ctx.font      = '14px sans-serif'
-      ctx.fillText(hero.description, cardX + 95, cy + 60)
-
-      // 數值
-      ctx.fillStyle = '#7fb3d3'
+      ctx.fillStyle = isSel ? 'rgba(255,255,255,0.85)' : '#5588aa'
       ctx.font      = '13px sans-serif'
-      ctx.fillText(`HP ${hero.hp}   ATK ${hero.atk}   DEF ${hero.def}`, cardX + 95, cy + 82)
+      ctx.fillText(hero.description, cardX + 82, cy + 56)
 
-      // 解鎖狀態 / 條件
+      // 數值 chips
+      const stats = [
+        { label: `❤️ ${hero.hp}`, x: cardX + 82 },
+        { label: `⚔️ ${hero.atk}`, x: cardX + 144 },
+        { label: `🛡️ ${hero.def}`, x: cardX + 210 },
+      ]
+      for (const st of stats) {
+        ctx.fillStyle = isSel ? 'rgba(0,0,80,0.3)' : 'rgba(10,40,100,0.12)'
+        rrect(ctx, st.x - 2, cy + 64, 58, 22, 11); ctx.fill()
+        ctx.fillStyle = isSel ? '#fff' : T.textDark
+        ctx.font      = 'bold 12px sans-serif'; ctx.textAlign = 'left'
+        ctx.fillText(st.label, st.x + 4, cy + 79)
+      }
+
+      // 解鎖 / 已選狀態
       if (!unlocked) {
-        ctx.fillStyle = '#e67e22'
-        ctx.font      = 'bold 13px sans-serif'
-        ctx.fillText(`🔒 ${display.unlockHint || ''}`, cardX + 95, cy + 106)
-      } else if (isSelected) {
-        ctx.fillStyle = hero.color
-        ctx.font      = 'bold 13px sans-serif'
-        ctx.fillText('✓ 已選擇', cardX + 95, cy + 106)
+        ctx.fillStyle = '#e65100'; ctx.font = 'bold 12px sans-serif'
+        ctx.textAlign = 'left'
+        ctx.fillText(`🔒 ${disp.unlockHint || ''}`, cardX + 82, cy + 108)
+      } else if (isSel) {
+        ctx.fillStyle = T.goldLight; ctx.font = 'bold 13px sans-serif'
+        ctx.textAlign = 'right'
+        ctx.fillText('✓ 已選擇', cardX + cardW - 14, cy + cardH - 12)
       }
 
       ctx.restore()
@@ -189,34 +198,9 @@ export class HeroSelectScene {
     // 出發按鈕
     const pulse = 0.93 + Math.sin(this.t * 3.5) * 0.07
     ctx.save()
-    ctx.translate(W / 2, H * 0.84)
+    ctx.translate(W / 2, H * 0.86)
     ctx.scale(pulse, pulse)
-    this._btn(ctx, 0, 0, 200, 52, '⚔️  出發！', '#e74c3c', '#c0392b')
+    drawBtn(ctx, 0, 0, 220, 54, '⚔️  出發冒險！', T.btnRed, T.btnRedDark, 27)
     ctx.restore()
-  }
-
-  _btn(ctx, cx, cy, w, h, label, c1, c2) {
-    const x = cx - w / 2, y = cy - h / 2
-    const g = ctx.createLinearGradient(x, y, x, y + h)
-    g.addColorStop(0, c1); g.addColorStop(1, c2)
-    ctx.fillStyle = g
-    this._rrect(ctx, x, y, w, h, 12); ctx.fill()
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1.5; ctx.stroke()
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 19px sans-serif'
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-    ctx.fillText(label, cx, cy); ctx.textBaseline = 'alphabetic'
-  }
-
-  _rrect(ctx, x, y, w, h, r) {
-    ctx.beginPath()
-    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y)
-    ctx.arcTo(x + w, y, x + w, y + r, r)
-    ctx.lineTo(x + w, y + h - r)
-    ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
-    ctx.lineTo(x + r, y + h)
-    ctx.arcTo(x, y + h, x, y + h - r, r)
-    ctx.lineTo(x, y + r)
-    ctx.arcTo(x, y, x + r, y, r)
-    ctx.closePath()
   }
 }

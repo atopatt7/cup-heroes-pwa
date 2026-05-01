@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#1a1a2e" />
+  <meta name="description" content="Cup Heroes - 回合制杯子英雄冒險！" />
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Cup Heroes" />
+
+  <title>Cup Heroes</title>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #1a1a2e;
+    }
+
+    #game-canvas {
+      display: block;
+      margin: 0 auto;
+      touch-action: none;
+    }
+  </style>
+  <script type="module" crossorigin src="/cup-heroes-pwa/assets/index-BavCtms2.js"></script>
+</head>
+<body>
+  <canvas id="game-canvas"></canvas>
+</body>
+</html>

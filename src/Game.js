@@ -105,19 +105,8 @@ export class Game {
   // ── 內部邏輯 ────────────────────────────────────────────
 
   _onBattleVictory(gameState) {
-    const chapter    = CHAPTERS[gameState.chapterIdx]
-    const waveData   = chapter?.waves[gameState.waveIdx]
-    const isBossWave = waveData?.isBoss
-
-    // 章節 Boss 打完 → 杯球台
-    // 普通波 → 直接選卡（不進球台）
-    if (isBossWave) {
-      // Boss 關後必進球台，然後選卡
-      this.startCupGame(gameState)
-    } else {
-      // 普通關後直接選卡
-      this.showUpgrade(gameState, 0)
-    }
+    // 每場戰鬥結束後都進入球台，球台結束後再選卡
+    this.startCupGame(gameState)
   }
 
   _advanceWave(gameState) {

@@ -1,11 +1,10 @@
 // Game.js — 場景協調器（章節系統版本）
 // 遊戲流程：
-//   TitleScene → HeroSelectScene
-//   → BattleScene (wave) → UpgradeScene (選卡)
-//   → [每章結尾] → CupGameScene (球台)
-//   → 下一波 or 章節完成 or 遊戲勝利
+//   HomeScene → (英雄 tab) → HeroSelectScene → HomeScene
+//   HomeScene (開始挑戰) → BattleScene → CupGameScene → UpgradeScene
+//   → [下一波] → BattleScene …  or  [全部通關] → VictoryScene
 
-import { TitleScene }      from './scenes/TitleScene.js'
+import { HomeScene }       from './scenes/HomeScene.js'
 import { HeroSelectScene } from './scenes/HeroSelectScene.js'
 import { BattleScene }     from './scenes/BattleScene.js'
 import { CupGameScene }    from './scenes/CupGameScene.js'
@@ -13,6 +12,7 @@ import { UpgradeScene }    from './scenes/UpgradeScene.js'
 import { GameOverScene }   from './scenes/GameOverScene.js'
 import { VictoryScene }    from './scenes/VictoryScene.js'
 import { SaveManager }     from './game/SaveManager.js'
+import { SpriteManager }   from './game/SpriteManager.js'
 import { CHAPTERS }        from './data/chapters.js'
 import { getHero }         from './data/heroes.js'
 
@@ -27,32 +27,53 @@ export class Game {
 
   start() {
     this._registerServiceWorker()
-    this.showTitle()
+    SpriteManager.preloadAll()
+    this.showHome()
   }
 
   // ── 場景切換 ────────────────────────────────────────────
 
-  showTitle() {
-    this._switch(new TitleScene(
+  showHome() {
+    this._switch(new HomeScene(
       this.canvas, this.ctx,
-      () => this.showHeroSelect()
+      {
+        onStartBattle: (chapterIdx, waveIdx, heroId) => {
+          const hero = getHero(heroId)
+          const gameState = {
+            chapterIdx,
+            waveIdx,
+            hero,
+            score: 0,
+            gold:  0,
+          }
+          this.startBattle(gameState)
+        },
+        onHeroSelect: () => {
+          this.showHeroSelect((heroId) => {
+            SaveManager.setSelectedHero(heroId)
+            this.showHome()
+          })
+        },
+      }
     ))
   }
 
-  showHeroSelect() {
+  showHeroSelect(onDone) {
+    // onDone(heroId) — 選完英雄後呼叫；若不傳則直接以第 1 關開始遊戲
+    const callback = onDone || ((heroId) => {
+      const hero = getHero(heroId)
+      const gameState = {
+        chapterIdx: 0,
+        waveIdx:    0,
+        hero,
+        score:      0,
+        gold:       0,
+      }
+      this.startBattle(gameState)
+    })
     this._switch(new HeroSelectScene(
       this.canvas, this.ctx,
-      (heroId) => {
-        const hero = getHero(heroId)
-        const gameState = {
-          chapterIdx: 0,
-          waveIdx:    0,
-          hero,
-          score:      0,
-          gold:       0,
-        }
-        this.startBattle(gameState)
-      }
+      callback
     ))
   }
 
@@ -87,7 +108,7 @@ export class Game {
     )
     this._switch(new GameOverScene(
       this.canvas, this.ctx, gameState,
-      () => this.showTitle()
+      () => this.showHome()
     ))
   }
 
@@ -98,20 +119,23 @@ export class Game {
     SaveManager.unlockHero('druid')
     this._switch(new VictoryScene(
       this.canvas, this.ctx, gameState,
-      () => this.showTitle()
+      () => this.showHome()
     ))
   }
 
   // ── 內部邏輯 ────────────────────────────────────────────
 
   _onBattleVictory(gameState) {
-    // 每場戰鬥結束後都進入球台，球台結束後再選卡
+    // 解鎖下一關進度
+    const currentLevelIdx = gameState.chapterIdx * 4 + gameState.waveIdx
+    SaveManager.advanceLevel(currentLevelIdx + 1)
+    // 每場戰鬥結束後都進入球台
     this.startCupGame(gameState)
   }
 
   _advanceWave(gameState) {
-    const chapter   = CHAPTERS[gameState.chapterIdx]
-    const nextWave  = gameState.waveIdx + 1
+    const chapter  = CHAPTERS[gameState.chapterIdx]
+    const nextWave = gameState.waveIdx + 1
 
     if (nextWave >= chapter.waves.length) {
       // 章節結束

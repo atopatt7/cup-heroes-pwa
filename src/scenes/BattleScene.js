@@ -2,6 +2,7 @@
 import { createBattleState, playerAttack, enemyAttack, checkBattleEnd, getNextTarget } from '../game/AutoBattle.js'
 import { generateWaveEnemies, getWaveLabel, CHAPTERS } from '../data/chapters.js'
 import { CARDS, RARITY } from '../data/cards.js'
+import { SpriteManager } from '../game/SpriteManager.js'
 import { T } from '../utils/theme.js'
 import { drawSky, drawGround, drawHpBar, drawBtn, rrect } from '../utils/drawHelpers.js'
 
@@ -328,9 +329,13 @@ export class BattleScene {
     const topY  = y - cupH
     const botY  = y
 
-    // 影子
+    // 影子（sprite 或 fallback 都畫）
     ctx.fillStyle = 'rgba(0,0,0,0.2)'
     ctx.beginPath(); ctx.ellipse(x, y + 10, 26, 7, 0, 0, Math.PI * 2); ctx.fill()
+
+    // 嘗試 sprite，失敗則用 canvas 繪圖
+    const heroKey = `hero_${this.gameState.hero?.id || 'knight'}`
+    SpriteManager.drawSprite(ctx, heroKey, x, y, 80, 100, () => {
 
     // 杯身
     const hero  = this.gameState.hero
@@ -386,6 +391,7 @@ export class BattleScene {
     ctx.moveTo(topX, topY); ctx.lineTo(topX + cupW, topY)
     ctx.lineTo(botX + cupBW, botY); ctx.lineTo(botX, botY)
     ctx.closePath(); ctx.stroke()
+    }) // end SpriteManager.drawSprite fallback
   }
 
   _drawEnemy(ctx, enemy, x) {
@@ -404,73 +410,79 @@ export class BattleScene {
   }
 
   _drawNormalEnemy(ctx, enemy, x, y, size) {
-    const rg = ctx.createRadialGradient(x - size * 0.2, y - size * 0.6, size * 0.1, x, y - size * 0.5, size * 0.8)
-    rg.addColorStop(0, _lighten(enemy.color || '#888', 40))
-    rg.addColorStop(0.7, enemy.color || '#888')
-    rg.addColorStop(1, _darken(enemy.color || '#888', 30))
-    ctx.fillStyle = rg
-    ctx.beginPath(); ctx.arc(x, y - size * 0.55, size * 0.55, 0, Math.PI * 2); ctx.fill()
+    const enemyKey = `enemy_${enemy.type || 'slime'}`
+    SpriteManager.drawSprite(ctx, enemyKey, x, y, size * 1.2, size * 1.2, () => {
+      const rg = ctx.createRadialGradient(x - size * 0.2, y - size * 0.6, size * 0.1, x, y - size * 0.5, size * 0.8)
+      rg.addColorStop(0, _lighten(enemy.color || '#888', 40))
+      rg.addColorStop(0.7, enemy.color || '#888')
+      rg.addColorStop(1, _darken(enemy.color || '#888', 30))
+      ctx.fillStyle = rg
+      ctx.beginPath(); ctx.arc(x, y - size * 0.55, size * 0.55, 0, Math.PI * 2); ctx.fill()
 
-    ctx.strokeStyle = _darken(enemy.color || '#888', 40); ctx.lineWidth = 2
-    ctx.beginPath(); ctx.arc(x, y - size * 0.55, size * 0.55, 0, Math.PI * 2); ctx.stroke()
+      ctx.strokeStyle = _darken(enemy.color || '#888', 40); ctx.lineWidth = 2
+      ctx.beginPath(); ctx.arc(x, y - size * 0.55, size * 0.55, 0, Math.PI * 2); ctx.stroke()
 
-    // 眼睛
-    const ey = y - size * 0.6
-    for (const ex of [x - size * 0.22, x + size * 0.22]) {
-      ctx.fillStyle = '#fff'
-      ctx.beginPath(); ctx.ellipse(ex, ey, size * 0.12, size * 0.12, 0, 0, Math.PI * 2); ctx.fill()
-      ctx.fillStyle = '#200'
-      ctx.beginPath(); ctx.ellipse(ex + 1, ey + 1, size * 0.07, size * 0.07, 0, 0, Math.PI * 2); ctx.fill()
-    }
+      // 眼睛
+      const ey = y - size * 0.6
+      for (const ex of [x - size * 0.22, x + size * 0.22]) {
+        ctx.fillStyle = '#fff'
+        ctx.beginPath(); ctx.ellipse(ex, ey, size * 0.12, size * 0.12, 0, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = '#200'
+        ctx.beginPath(); ctx.ellipse(ex + 1, ey + 1, size * 0.07, size * 0.07, 0, 0, Math.PI * 2); ctx.fill()
+      }
 
-    // emoji 標籤
-    ctx.font = `${size * 0.5}px serif`
-    ctx.textAlign = 'center'
-    ctx.fillText(enemy.emoji || '👾', x, y - size * 0.3)
+      // emoji 標籤
+      ctx.font = `${size * 0.5}px serif`
+      ctx.textAlign = 'center'
+      ctx.fillText(enemy.emoji || '👾', x, y - size * 0.3)
+    })
   }
 
   _drawBossEnemy(ctx, enemy, x, y, size) {
-    // Boss 身體（杯狀）
     const bw = size * 1.1
     const bh = size * 1.3
-    const rg = ctx.createRadialGradient(x, y - bh * 0.5, bh * 0.05, x, y - bh * 0.5, bh * 0.8)
-    rg.addColorStop(0, _lighten(enemy.color || '#c00', 40))
-    rg.addColorStop(1, _darken(enemy.color || '#c00', 20))
-    ctx.fillStyle = rg
-    ctx.beginPath()
-    ctx.moveTo(x - bw / 2, y - bh)
-    ctx.lineTo(x + bw / 2, y - bh)
-    ctx.lineTo(x + bw * 0.35, y)
-    ctx.lineTo(x - bw * 0.35, y)
-    ctx.closePath(); ctx.fill()
+    const enemyKey = `enemy_${enemy.type || 'slime'}`
+    SpriteManager.drawSprite(ctx, enemyKey, x, y, bw * 1.4, (bh + 30) * 1.2, () => {
+      // Boss 身體（杯狀）
+      const rg = ctx.createRadialGradient(x, y - bh * 0.5, bh * 0.05, x, y - bh * 0.5, bh * 0.8)
+      rg.addColorStop(0, _lighten(enemy.color || '#c00', 40))
+      rg.addColorStop(1, _darken(enemy.color || '#c00', 20))
+      ctx.fillStyle = rg
+      ctx.beginPath()
+      ctx.moveTo(x - bw / 2, y - bh)
+      ctx.lineTo(x + bw / 2, y - bh)
+      ctx.lineTo(x + bw * 0.35, y)
+      ctx.lineTo(x - bw * 0.35, y)
+      ctx.closePath(); ctx.fill()
 
-    // 皇冠
-    const crownY = y - bh - 14
-    ctx.fillStyle = T.gold
-    ctx.beginPath()
-    ctx.moveTo(x - bw * 0.4, crownY + 16)
-    ctx.lineTo(x - bw * 0.45, crownY)
-    ctx.lineTo(x - bw * 0.15, crownY + 10)
-    ctx.lineTo(x, crownY - 6)
-    ctx.lineTo(x + bw * 0.15, crownY + 10)
-    ctx.lineTo(x + bw * 0.45, crownY)
-    ctx.lineTo(x + bw * 0.4, crownY + 16)
-    ctx.closePath(); ctx.fill()
-    ctx.strokeStyle = T.goldDark; ctx.lineWidth = 1.5; ctx.stroke()
+      // 皇冠
+      const crownY = y - bh - 14
+      ctx.fillStyle = T.gold
+      ctx.beginPath()
+      ctx.moveTo(x - bw * 0.4, crownY + 16)
+      ctx.lineTo(x - bw * 0.45, crownY)
+      ctx.lineTo(x - bw * 0.15, crownY + 10)
+      ctx.lineTo(x, crownY - 6)
+      ctx.lineTo(x + bw * 0.15, crownY + 10)
+      ctx.lineTo(x + bw * 0.45, crownY)
+      ctx.lineTo(x + bw * 0.4, crownY + 16)
+      ctx.closePath(); ctx.fill()
+      ctx.strokeStyle = T.goldDark; ctx.lineWidth = 1.5; ctx.stroke()
 
-    // 眼睛（憤怒）
-    const ey = y - bh * 0.58
-    for (const ex of [x - bw * 0.2, x + bw * 0.2]) {
-      ctx.fillStyle = '#ff0'
-      ctx.beginPath(); ctx.ellipse(ex, ey, bw * 0.1, bw * 0.1, 0, 0, Math.PI * 2); ctx.fill()
-      ctx.fillStyle = '#600'
-      ctx.beginPath(); ctx.ellipse(ex, ey + 1, bw * 0.06, bw * 0.06, 0, 0, Math.PI * 2); ctx.fill()
-    }
+      // 眼睛（憤怒）
+      const ey = y - bh * 0.58
+      for (const ex of [x - bw * 0.2, x + bw * 0.2]) {
+        ctx.fillStyle = '#ff0'
+        ctx.beginPath(); ctx.ellipse(ex, ey, bw * 0.1, bw * 0.1, 0, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = '#600'
+        ctx.beginPath(); ctx.ellipse(ex, ey + 1, bw * 0.06, bw * 0.06, 0, 0, Math.PI * 2); ctx.fill()
+      }
 
-    // emoji
-    ctx.font = `${size * 0.4}px serif`
-    ctx.textAlign = 'center'
-    ctx.fillText(enemy.emoji || '👑', x, y - bh * 0.25)
+      // emoji
+      ctx.font = `${size * 0.4}px serif`
+      ctx.textAlign = 'center'
+      ctx.fillText(enemy.emoji || '👑', x, y - bh * 0.25)
+    })
   }
 
   _drawDeckBar(ctx, W, H) {

@@ -58,18 +58,21 @@ export class GameOverScene {
     ctx.fillText('GAME OVER', W / 2, H * 0.36)
     ctx.shadowBlur  = 0
 
-    // 波次
-    const wave = (this.gameState.currentWave || 1)
+    // 章節/波次
+    const gs = this.gameState
+    const chNum  = (gs.chapterIdx || 0) + 1
+    const wvNum  = (gs.waveIdx    || 0) + 1
     ctx.fillStyle = '#888'
     ctx.font      = '20px sans-serif'
-    ctx.fillText(`到達第 ${wave} 波`, W / 2, H * 0.48)
+    ctx.fillText(`到達第 ${chNum} 章 · 波次 ${wvNum}`, W / 2, H * 0.48)
 
     // 英雄數值
-    const h = this.gameState.hero
+    const h = gs.hero
     if (h) {
       ctx.fillStyle = '#555'
       ctx.font      = '15px sans-serif'
-      ctx.fillText(`ATK ${h.atk}  DEF ${h.def}  MaxHP ${h.maxHp}`, W / 2, H * 0.56)
+      ctx.fillText(`${h.nameZh || h.name}  ATK ${h.atk}  DEF ${h.def}`, W / 2, H * 0.55)
+      ctx.fillText(`牌組：${(h.deck||[]).length} 張`, W / 2, H * 0.61)
     }
 
     // 重玩提示（閃爍）

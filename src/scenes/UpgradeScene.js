@@ -1,45 +1,33 @@
-// UpgradeScene.js
-// 升級卡選擇畫面
-// - 根據 totalScore（彈珠台得分）顯示 3 張升級卡
-// - 玩家選一張，套用到 gameState.hero
-// - 選完後呼叫 onComplete()
+// UpgradeScene.js — 卡牌選擇畫面（稀有度系統）
+// 波次勝利後：玩家從 3 張卡牌中選一張加入牌組
+import { drawCardOffers, RARITY, CARDS } from '../data/cards.js'
+import { T } from '../utils/theme.js'
+import { drawSky, drawBtn, rrect } from '../utils/drawHelpers.js'
 
-const UPGRADES = [
-  { id: 'atk_s',  name: '⚔️ 攻擊強化',    desc: 'ATK +5',        rarity: 'common', apply: (h) => { h.atk += 5 } },
-  { id: 'atk_m',  name: '⚔️ 猛力強化',    desc: 'ATK +10',       rarity: 'rare',   apply: (h) => { h.atk += 10 } },
-  { id: 'def_s',  name: '🛡️ 防禦強化',    desc: 'DEF +4',        rarity: 'common', apply: (h) => { h.def += 4 } },
-  { id: 'def_m',  name: '🛡️ 鋼鐵意志',    desc: 'DEF +8',        rarity: 'rare',   apply: (h) => { h.def += 8 } },
-  { id: 'hp_s',   name: '💖 生命強化',     desc: 'MaxHP +20',     rarity: 'common', apply: (h) => { h.maxHp += 20; h.hp += 20 } },
-  { id: 'hp_m',   name: '💖 強健體魄',     desc: 'MaxHP +40',     rarity: 'rare',   apply: (h) => { h.maxHp += 40; h.hp += 40 } },
-  { id: 'heal_s', name: '🍀 治療藥草',     desc: '回復 HP 30',    rarity: 'common', apply: (h) => { h.hp = Math.min(h.maxHp, h.hp + 30) } },
-  { id: 'heal_m', name: '🍀 強效藥水',     desc: '回復 HP 60',    rarity: 'rare',   apply: (h) => { h.hp = Math.min(h.maxHp, h.hp + 60) } },
-  { id: 'full_h', name: '✨ 滿血復活',     desc: '完全回復 HP',   rarity: 'epic',   apply: (h) => { h.hp = h.maxHp } },
-  { id: 'all_s',  name: '🌟 全能強化',     desc: 'ATK+5 DEF+3',  rarity: 'epic',   apply: (h) => { h.atk += 5; h.def += 3 } },
-]
-
-const RARITY_COLOR = { common: '#3498db', rare: '#9b59b6', epic: '#f39c12' }
+const RARITY_BG = {
+  common:    '#1a2840',
+  rare:      '#0d1f3a',
+  epic:      '#1a0d30',
+  legendary: '#2a1800',
+}
 
 export class UpgradeScene {
   constructor(canvas, ctx, gameState, totalScore, onComplete) {
     this.canvas     = canvas
     this.ctx        = ctx
     this.gameState  = gameState
-    this.totalScore = totalScore
+    this.totalScore = totalScore || 0
     this.onComplete = onComplete
 
     this.animId  = null
     this.t       = 0
     this.lastTs  = 0
-    this.chosen  = null   // index 0~2
-    this.state   = 'choosing'  // 'choosing' | 'chosen'
+    this.chosen  = null
+    this.state   = 'choosing'
 
-    // 隨機抽 3 張
-    const pool = [...UPGRADES]
-    this.cards = []
-    for (let i = 0; i < 3 && pool.length > 0; i++) {
-      const idx = Math.floor(Math.random() * pool.length)
-      this.cards.push(pool.splice(idx, 1)[0])
-    }
+    // 根據當前波次決定稀有度機率
+    const wave = (gameState.waveIdx || 0) + (gameState.chapterIdx || 0) * 4 + 1
+    this.cards = drawCardOffers(3, wave)
 
     this._loop    = this._loop.bind(this)
     this._onClick = this._onClick.bind(this)
@@ -56,8 +44,9 @@ export class UpgradeScene {
   }
 
   _loop(ts) {
-    this.t += Math.min((ts - this.lastTs) / 1000, 0.05)
-    this.lastTs = ts
+    const dt = Math.min((ts - this.lastTs) / 1000, 0.05)
+    this.t       += dt
+    this.lastTs   = ts
     this._draw()
     this.animId = requestAnimationFrame(this._loop)
   }
@@ -76,149 +65,191 @@ export class UpgradeScene {
     const tx = (e.clientX - rect.left) * scaleX
     const ty = (e.clientY - rect.top)  * scaleY
 
-    const W      = this.canvas.width
-    const cardW  = W * 0.82
-    const cardH  = 100
-    const cardX  = (W - cardW) / 2
-    const startY = this.canvas.height * 0.22
+    const W     = this.canvas.width
+    const H     = this.canvas.height
+    const cardW = W * 0.84
+    const cardH = 120
+    const cardX = (W - cardW) / 2
+    const startY = H * 0.20
 
     this.cards.forEach((card, i) => {
-      const cy = startY + i * (cardH + 18)
+      const cy = startY + i * (cardH + 16)
       if (tx >= cardX && tx <= cardX + cardW && ty >= cy && ty <= cy + cardH) {
         this.chosen = i
-        card.apply(this.gameState.hero)
-        this.state = 'chosen'
+        this.state  = 'chosen'
+        // 加入牌組
+        if (!this.gameState.hero.deck) this.gameState.hero.deck = []
+        this.gameState.hero.deck.push(card.id)
       }
     })
   }
 
   _draw() {
     const ctx = this.ctx
-    const W = this.canvas.width
-    const H = this.canvas.height
+    const W   = this.canvas.width
+    const H   = this.canvas.height
 
-    // 背景
+    // 深色背景
     const bg = ctx.createLinearGradient(0, 0, 0, H)
-    bg.addColorStop(0, '#0d0d1a')
-    bg.addColorStop(1, '#1a0a2e')
+    bg.addColorStop(0, '#07090f')
+    bg.addColorStop(1, '#0d1220')
     ctx.fillStyle = bg
     ctx.fillRect(0, 0, W, H)
 
+    // 頂部裝飾星點
+    this._drawStars(ctx, W, H)
+
     ctx.textAlign = 'center'
 
-    // 標題
-    ctx.fillStyle = '#f5c518'
-    ctx.font = 'bold 24px sans-serif'
-    ctx.fillText('✨ 選擇升級', W / 2, 44)
+    // ── 標題 ──────────────────────────────────────────────
+    const gTitle = ctx.createLinearGradient(W * 0.2, 0, W * 0.8, 0)
+    gTitle.addColorStop(0, '#ffd700')
+    gTitle.addColorStop(0.5, '#fff8dc')
+    gTitle.addColorStop(1, '#ffd700')
+    ctx.fillStyle = gTitle
+    ctx.font      = 'bold 26px sans-serif'
+    ctx.shadowColor = '#f5c518'; ctx.shadowBlur = 14
+    ctx.fillText('✨ 選擇技能卡', W / 2, 46)
+    ctx.shadowBlur = 0
 
-    ctx.fillStyle = '#aaa'
-    ctx.font = '15px sans-serif'
-    const wave = this.gameState.currentWave - 1  // 剛打完的波次
-    ctx.fillText(`Wave ${wave} 完成！  彈珠得分：${this.totalScore}`, W / 2, 70)
+    // 當前波次
+    const chNum  = (this.gameState.chapterIdx || 0) + 1
+    const wNum   = (this.gameState.waveIdx    || 0) + 1
+    ctx.fillStyle = T.textGray
+    ctx.font      = '14px sans-serif'
+    ctx.fillText(`第${chNum}章 波次${wNum} 完成  🏆 得分：${this.totalScore}`, W / 2, 70)
 
-    // 英雄當前數值
+    // 英雄狀態
     const h = this.gameState.hero
-    ctx.fillStyle = '#7f8c8d'
-    ctx.font = '13px sans-serif'
-    ctx.fillText(`HP ${h.hp}/${h.maxHp}  ATK ${h.atk}  DEF ${h.def}`, W / 2, 92)
+    ctx.fillStyle = T.textGray
+    ctx.font      = '12px sans-serif'
+    ctx.fillText(`HP ${Math.ceil(h.hp)}/${h.maxHp}  ATK ${h.atk}  DEF ${h.def}  牌組：${(h.deck||[]).length}張`, W / 2, 90)
 
-    // 升級卡
-    const cardW  = W * 0.82
-    const cardH  = 100
+    // ── 卡牌 ──────────────────────────────────────────────
+    const cardW  = W * 0.84
+    const cardH  = 120
     const cardX  = (W - cardW) / 2
-    const startY = H * 0.22
+    const startY = H * 0.20
 
     this.cards.forEach((card, i) => {
-      const cy      = startY + i * (cardH + 18)
+      const cy      = startY + i * (cardH + 16)
       const isChosen = this.chosen === i
       const isOther  = this.state === 'chosen' && !isChosen
-      const color    = RARITY_COLOR[card.rarity] || '#888'
+      const rar      = RARITY[card.rarity] || RARITY.common
+      const rarColor = rar.color
+      const rarGlow  = rar.glow
 
       ctx.save()
-      if (isOther) ctx.globalAlpha = 0.25
-      if (isChosen) { ctx.shadowColor = color; ctx.shadowBlur = 22 }
+      if (isOther) ctx.globalAlpha = 0.22
 
-      // 卡片背景
+      // 卡片背景漸層
+      const bgColor = RARITY_BG[card.rarity] || '#1a2840'
       const cg = ctx.createLinearGradient(cardX, cy, cardX, cy + cardH)
-      cg.addColorStop(0, isChosen ? color + '44' : 'rgba(25,25,45,0.97)')
-      cg.addColorStop(1, isChosen ? color + '11' : 'rgba(12,12,25,0.97)')
+      if (isChosen) {
+        cg.addColorStop(0, rarColor + '55')
+        cg.addColorStop(1, rarColor + '11')
+      } else {
+        cg.addColorStop(0, bgColor)
+        cg.addColorStop(1, '#070a12')
+      }
       ctx.fillStyle = cg
-      this._rrect(ctx, cardX, cy, cardW, cardH, 12)
-      ctx.fill()
+      rrect(ctx, cardX, cy, cardW, cardH, 14); ctx.fill()
 
-      ctx.strokeStyle = isChosen ? color : color + '77'
+      // 邊框發光
+      if (isChosen) {
+        ctx.shadowColor = rarGlow; ctx.shadowBlur = 18
+      }
+      ctx.strokeStyle = isChosen ? rarColor : rarColor + '66'
       ctx.lineWidth   = isChosen ? 2.5 : 1.5
+      rrect(ctx, cardX, cy, cardW, cardH, 14); ctx.stroke()
       ctx.shadowBlur  = 0
-      ctx.stroke()
 
-      // 稀有度
-      ctx.fillStyle  = color
-      ctx.font       = 'bold 11px sans-serif'
-      ctx.textAlign  = 'right'
-      ctx.fillText({ common: 'COMMON', rare: 'RARE', epic: 'EPIC' }[card.rarity], cardX + cardW - 14, cy + 20)
+      // 左色條
+      const barW = 6
+      ctx.fillStyle = rarColor
+      rrect(ctx, cardX, cy, barW, cardH, 14); ctx.fill()
+      ctx.fillStyle = rarColor
+      ctx.fillRect(cardX + barW - 2, cy, 4, cardH)
+
+      // 圖示
+      ctx.font = '32px serif'
+      ctx.textAlign = 'left'
+      ctx.fillText(card.icon || '?', cardX + 22, cy + 46)
+
+      // 稀有度徽章
+      ctx.fillStyle = rarColor + 'cc'
+      rrect(ctx, cardX + 60, cy + 10, 62, 18, 6); ctx.fill()
+      ctx.fillStyle   = '#fff'
+      ctx.font        = 'bold 10px sans-serif'
+      ctx.textAlign   = 'center'
+      ctx.fillText(rar.label.toUpperCase(), cardX + 91, cy + 22)
 
       // 卡名
       ctx.fillStyle = '#fff'
-      ctx.font      = 'bold 20px sans-serif'
+      ctx.font      = 'bold 18px sans-serif'
       ctx.textAlign = 'left'
-      ctx.fillText(card.name, cardX + 16, cy + 40)
+      ctx.fillText(card.nameZh || card.name, cardX + 60, cy + 50)
 
-      // 效果
-      ctx.fillStyle = '#bbb'
-      ctx.font      = '15px sans-serif'
-      ctx.fillText(card.desc, cardX + 16, cy + 66)
+      // 描述
+      ctx.fillStyle = T.textGray
+      ctx.font      = '13px sans-serif'
+      ctx.fillText(card.desc, cardX + 60, cy + 74)
+
+      // 觸發條件
+      const triggerLabel = {
+        passive:      '被動',
+        battle_start: '戰鬥開始',
+        on_attack:    '每次攻擊',
+        on_crit:      '暴擊時',
+        on_kill:      '擊殺時',
+        on_hit:       '被攻擊時',
+        on_low_hp:    '低血量',
+      }[card.trigger] || card.trigger
+      ctx.fillStyle = rarColor + 'aa'
+      ctx.font      = '11px sans-serif'
+      ctx.fillText(`觸發：${triggerLabel}`, cardX + 60, cy + 92)
 
       // 勾選
       if (isChosen) {
-        ctx.fillStyle = color
-        ctx.font      = 'bold 26px sans-serif'
-        ctx.textAlign = 'right'
-        ctx.fillText('✓', cardX + cardW - 14, cy + cardH - 14)
+        ctx.fillStyle   = rarColor
+        ctx.font        = 'bold 24px sans-serif'
+        ctx.textAlign   = 'right'
+        ctx.fillText('✓ 已選擇', cardX + cardW - 14, cy + cardH - 14)
       }
 
       ctx.restore()
     })
 
-    // 繼續 / 提示
+    // ── 按鈕 / 提示 ───────────────────────────────────────
     if (this.state === 'chosen') {
-      const pulse = 0.92 + Math.sin(this.t * 4) * 0.08
+      const pulse = 0.93 + Math.sin(this.t * 3.5) * 0.07
       ctx.save()
-      ctx.translate(W / 2, H * 0.88)
+      ctx.translate(W / 2, H * 0.90)
       ctx.scale(pulse, pulse)
-      this._btn(ctx, 0, 0, 210, 50, `Wave ${this.gameState.currentWave} 出發 →`, '#e74c3c', '#c0392b')
+      drawBtn(ctx, 0, 0, 220, 52, '繼續冒險 ▶', T.btnRed, T.btnRedDark)
       ctx.restore()
     } else {
-      ctx.globalAlpha = 0.5 + Math.sin(this.t * 2.5) * 0.4
-      ctx.fillStyle   = '#fff'
+      ctx.globalAlpha = 0.6 + Math.sin(this.t * 2.5) * 0.35
+      ctx.fillStyle   = T.textGray
       ctx.font        = '15px sans-serif'
       ctx.textAlign   = 'center'
-      ctx.fillText('👆 點擊一張卡片選取', W / 2, H * 0.90)
+      ctx.fillText('👆 點選一張卡牌加入牌組', W / 2, H * 0.91)
       ctx.globalAlpha = 1
     }
   }
 
-  _btn(ctx, cx, cy, w, h, label, c1, c2) {
-    const x = cx - w / 2, y = cy - h / 2
-    const g = ctx.createLinearGradient(x, y, x, y + h)
-    g.addColorStop(0, c1); g.addColorStop(1, c2)
-    ctx.fillStyle = g
-    this._rrect(ctx, x, y, w, h, 10); ctx.fill()
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1.5; ctx.stroke()
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 18px sans-serif'
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-    ctx.fillText(label, cx, cy); ctx.textBaseline = 'alphabetic'
-  }
-
-  _rrect(ctx, x, y, w, h, r) {
-    ctx.beginPath()
-    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y)
-    ctx.arcTo(x + w, y, x + w, y + r, r)
-    ctx.lineTo(x + w, y + h - r)
-    ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
-    ctx.lineTo(x + r, y + h)
-    ctx.arcTo(x, y + h, x, y + h - r, r)
-    ctx.lineTo(x, y + r)
-    ctx.arcTo(x, y, x + r, y, r)
-    ctx.closePath()
+  _drawStars(ctx, W, H) {
+    // 簡單背景星點
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'
+    const stars = [
+      [30, 20], [80, 50], [150, 10], [240, 35], [310, 15], [370, 40],
+      [50, 110], [190, 95], [350, 105], [20, 150],
+    ]
+    for (const [sx, sy] of stars) {
+      const twinkle = 0.3 + Math.abs(Math.sin(this.t * 1.5 + sx * 0.05)) * 0.7
+      ctx.globalAlpha = twinkle * 0.6
+      ctx.beginPath(); ctx.arc(sx, sy, 1.5, 0, Math.PI * 2); ctx.fill()
+    }
+    ctx.globalAlpha = 1
   }
 }

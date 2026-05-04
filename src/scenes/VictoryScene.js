@@ -89,11 +89,18 @@ export class VictoryScene {
     ctx.fillText('你擊敗了所有敵人！', W / 2, H * 0.46)
 
     // 英雄最終數值
-    const h = this.gameState.hero
+    const h  = this.gameState.hero
+    const gs = this.gameState
     if (h) {
+      ctx.fillStyle = '#ffd700'
+      ctx.font      = 'bold 18px sans-serif'
+      ctx.fillText(`${h.nameZh || h.name}  通關 3 章 12 波！`, W / 2, H * 0.52)
       ctx.fillStyle = '#aaa'
-      ctx.font      = '16px sans-serif'
-      ctx.fillText(`最終 ATK ${h.atk}  DEF ${h.def}  HP ${h.hp}/${h.maxHp}`, W / 2, H * 0.56)
+      ctx.font      = '15px sans-serif'
+      ctx.fillText(`最終 ATK ${h.atk}  DEF ${h.def}  HP ${Math.ceil(h.hp)}/${h.maxHp}`, W / 2, H * 0.58)
+      ctx.fillStyle = '#88d8ff'
+      ctx.font      = '14px sans-serif'
+      ctx.fillText(`牌組：${(h.deck||[]).length} 張  總得分：${gs.score || 0}`, W / 2, H * 0.63)
     }
 
     // 返回提示（閃爍）

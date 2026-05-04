@@ -1,4 +1,10 @@
-// Game.js — 場景協調器，負責所有場景切換
+// Game.js — 場景協調器（章節系統版本）
+// 遊戲流程：
+//   TitleScene → HeroSelectScene
+//   → BattleScene (wave) → UpgradeScene (選卡)
+//   → [每章結尾] → CupGameScene (球台)
+//   → 下一波 or 章節完成 or 遊戲勝利
+
 import { TitleScene }      from './scenes/TitleScene.js'
 import { HeroSelectScene } from './scenes/HeroSelectScene.js'
 import { BattleScene }     from './scenes/BattleScene.js'
@@ -7,6 +13,10 @@ import { UpgradeScene }    from './scenes/UpgradeScene.js'
 import { GameOverScene }   from './scenes/GameOverScene.js'
 import { VictoryScene }    from './scenes/VictoryScene.js'
 import { SaveManager }     from './game/SaveManager.js'
+import { CHAPTERS }        from './data/chapters.js'
+import { getHero }         from './data/heroes.js'
+
+const TOTAL_CHAPTERS = CHAPTERS.length   // 3
 
 export class Game {
   constructor(canvas, ctx) {
@@ -32,7 +42,17 @@ export class Game {
   showHeroSelect() {
     this._switch(new HeroSelectScene(
       this.canvas, this.ctx,
-      (heroStats) => this.startBattle({ currentWave: 1, hero: { ...heroStats } })
+      (heroId) => {
+        const hero = getHero(heroId)
+        const gameState = {
+          chapterIdx: 0,
+          waveIdx:    0,
+          hero,
+          score:      0,
+          gold:       0,
+        }
+        this.startBattle(gameState)
+      }
     ))
   }
 
@@ -47,20 +67,24 @@ export class Game {
   startCupGame(gameState) {
     this._switch(new CupGameScene(
       this.canvas, this.ctx, gameState,
-      (totalScore) => this.showUpgrade(gameState, totalScore)
+      (totalScore) => {
+        gameState.score = (gameState.score || 0) + totalScore
+        this.showUpgrade(gameState, totalScore)
+      }
     ))
   }
 
   showUpgrade(gameState, totalScore) {
     this._switch(new UpgradeScene(
       this.canvas, this.ctx, gameState, totalScore,
-      () => this.startBattle(gameState)
+      () => this._advanceWave(gameState)
     ))
   }
 
   showGameOver(gameState) {
-    const wave = (gameState.currentWave || 1) - 1
-    if (wave > 0) SaveManager.updateBestWave(wave)
+    SaveManager.updateBestWave(
+      gameState.chapterIdx * 4 + (gameState.waveIdx || 0)
+    )
     this._switch(new GameOverScene(
       this.canvas, this.ctx, gameState,
       () => this.showTitle()
@@ -68,24 +92,58 @@ export class Game {
   }
 
   showVictory(gameState) {
-    SaveManager.updateBestWave(15)
-    SaveManager.unlockHero('ninja')
+    SaveManager.updateBestWave(TOTAL_CHAPTERS * 4)
+    SaveManager.unlockHero('rogue')
+    SaveManager.unlockHero('barbarian')
+    SaveManager.unlockHero('druid')
     this._switch(new VictoryScene(
       this.canvas, this.ctx, gameState,
       () => this.showTitle()
     ))
   }
 
-  // ── 內部工具 ────────────────────────────────────────────
+  // ── 內部邏輯 ────────────────────────────────────────────
 
   _onBattleVictory(gameState) {
-    const justFinished = gameState.currentWave - 1
-    SaveManager.updateBestWave(justFinished)
-    if (justFinished >= 5) SaveManager.unlockHero('ninja')
-    if (gameState.currentWave > 15) {
-      this.showVictory(gameState)
-    } else {
+    const chapter    = CHAPTERS[gameState.chapterIdx]
+    const waveData   = chapter?.waves[gameState.waveIdx]
+    const isBossWave = waveData?.isBoss
+
+    // 章節 Boss 打完 → 杯球台
+    // 普通波 → 直接選卡（不進球台）
+    if (isBossWave) {
+      // Boss 關後必進球台，然後選卡
       this.startCupGame(gameState)
+    } else {
+      // 普通關後直接選卡
+      this.showUpgrade(gameState, 0)
+    }
+  }
+
+  _advanceWave(gameState) {
+    const chapter   = CHAPTERS[gameState.chapterIdx]
+    const nextWave  = gameState.waveIdx + 1
+
+    if (nextWave >= chapter.waves.length) {
+      // 章節結束
+      const nextChapter = gameState.chapterIdx + 1
+      if (nextChapter >= TOTAL_CHAPTERS) {
+        // 全部通關！
+        this.showVictory(gameState)
+      } else {
+        // 進入下一章
+        gameState.chapterIdx = nextChapter
+        gameState.waveIdx    = 0
+        // 解鎖英雄
+        if (nextChapter === 1) SaveManager.unlockHero('rogue')
+        if (nextChapter === 2) SaveManager.unlockHero('barbarian')
+        if (nextChapter === 3) SaveManager.unlockHero('druid')
+        this.startBattle(gameState)
+      }
+    } else {
+      // 同章下一波
+      gameState.waveIdx = nextWave
+      this.startBattle(gameState)
     }
   }
 

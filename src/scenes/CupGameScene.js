@@ -37,6 +37,8 @@ export class CupGameScene {
     }
     // ── 隔板（隨機生成）──
     this.boards = this._generateBoards()
+    // ── 底部乘數槽 ──
+    this.slots = this._generateSlots()
     // ── 物理球 ──
     this.balls = []
     this.settledCount = 0
@@ -66,34 +68,44 @@ export class CupGameScene {
     this._loop = this._loop.bind(this)
   }
   _initialBalls() {
-    const wave = this.gameState.currentWave || 1
-    return 10 + wave * 2
+    const chapter = this.gameState.chapterIdx || 0
+    const wave    = this.gameState.waveIdx    || 0
+    const base    = 12 + chapter * 4 + wave * 2
+    const bonus   = this.gameState.hero?.bonusBalls || 0
+    return base + bonus
   }
   _generateBoards() {
     const W = this.canvas.width
     const H = this.canvas.height
     const boards = []
-    const rows = 5
-    const startY = 140
-    const endY   = H - 160
-    const multipliers = [2, 2, 3, 3, 4, 5]
+    const rows = 6
+    const startY = 130
+    const endY   = H - 200  // 留空間給底部杯槽
+    // 乘數：章節越高越多高倍
+    const chapter    = this.gameState.chapterIdx || 0
+    const multipliers = chapter >= 2
+      ? [2, 3, 3, 5, 5, 10]
+      : chapter >= 1
+        ? [2, 2, 3, 3, 5, 5]
+        : [2, 2, 2, 3, 3, 4]
+
     for (let r = 0; r < rows; r++) {
       const y = startY + r * (endY - startY) / (rows - 1)
-      const count = Math.random() < 0.5 ? 1 : 2
+      const count = r % 2 === 0 ? 2 : 1
       const usedX = []
       for (let c = 0; c < count; c++) {
-        const bw = 60 + Math.floor(Math.random() * 80)
+        const bw = 55 + Math.floor(Math.random() * 75)
         let bx
         let tries = 0
         do {
-          bx = 30 + Math.random() * (W - 60 - bw)
+          bx = 22 + Math.random() * (W - 44 - bw)
           tries++
-        } while (tries < 20 && usedX.some(ux => Math.abs(ux - bx) < bw + 20))
+        } while (tries < 20 && usedX.some(ux => Math.abs(ux - bx) < bw + 16))
         usedX.push(bx)
         const mult = multipliers[Math.floor(Math.random() * multipliers.length)]
         boards.push({
           x: bx,
-          y: y + (Math.random() - 0.5) * 20,
+          y: y + (Math.random() - 0.5) * 16,
           width: bw,
           multiplier: mult,
           hitTimer: 0,
@@ -101,6 +113,32 @@ export class CupGameScene {
       }
     }
     return boards
+  }
+  // 底部杯槽：固定位置，有不同乘數（原版 Cup Heroes 核心機制）
+  _generateSlots() {
+    const W    = this.canvas.width
+    const H    = this.canvas.height
+    const slotY = H - 148
+    const chapter = this.gameState.chapterIdx || 0
+    // 槽位乘數配置（章節越高，兩側懲罰越大，中心獎勵越高）
+    const configs = [
+      [1, 2, 5, 2, 1],       // 第1章
+      [1, 2, 10, 2, 1],      // 第2章
+      [0, 3, 15, 3, 0],      // 第3章（兩側0x懲罰！）
+    ]
+    const mults = configs[Math.min(chapter, configs.length - 1)]
+    const slotW = (W - 36) / mults.length
+    const colors = { 0:'#c62828', 1:'#546e7a', 2:'#1565c0', 3:'#6a1b9a', 5:'#f57f17', 10:'#2e7d32', 15:'#b71c1c' }
+
+    return mults.map((m, i) => ({
+      x:    18 + i * slotW,
+      y:    slotY,
+      w:    slotW - 4,
+      h:    60,
+      mult: m,
+      color: colors[m] || '#1a237e',
+      hitTimer: 0,
+    }))
   }
   _spawnBall() {
     if (this.pourCup.ballsLeft <= 0) return
@@ -155,6 +193,10 @@ export class CupGameScene {
     for (const b of this.boards) {
       if (b.hitTimer > 0) b.hitTimer--
     }
+    // 槽位 hit timer
+    for (const s of this.slots) {
+      if (s.hitTimer > 0) s.hitTimer--
+    }
     for (const ball of this.balls) {
       if (ball.settled) continue
 
@@ -174,8 +216,32 @@ export class CupGameScene {
         }
       }
 
-      // 落入下方杯子
-      if (PhysicsEngine.checkCupCollision(ball, this.collectCup)) {
+      // 落入底部槽位
+      let intoSlot = false
+      for (const slot of this.slots) {
+        if (
+          ball.y + ball.r >= slot.y &&
+          ball.y - ball.r < slot.y + slot.h &&
+          ball.x >= slot.x &&
+          ball.x <= slot.x + slot.w &&
+          !ball.settled
+        ) {
+          ball.settled = true
+          this.settledCount++
+          const slotMult = slot.mult
+          const earned   = Math.floor(ball.multiplier * slotMult)
+          this.totalScore += Math.max(0, earned)
+          slot.hitTimer = 30
+          intoSlot = true
+          const scoreText = slotMult === 0 ? '×0 💀' : `+${earned}`
+          const scoreCol  = slotMult === 0 ? '#ff4444' : slotMult >= 10 ? '#ffd700' : '#a5f7a5'
+          this.floats.push({ x: ball.x, y: slot.y - 12, text: scoreText, alpha: 1, color: scoreCol })
+          break
+        }
+      }
+
+      // 落入收集杯（備用）
+      if (!intoSlot && PhysicsEngine.checkCupCollision(ball, this.collectCup)) {
         const cup = this.collectCup
         const cupTop = cup.y - cup.height / 2
         ball.settled = true
@@ -183,18 +249,10 @@ export class CupGameScene {
         ball.y = cupTop + ball.r + Math.random() * 8
         ball.vx = 0
         ball.vy = 0
-        const earned = ball.multiplier
+        const earned = Math.floor(ball.multiplier)
         this.totalScore += earned
         cup.count += earned
         this.settledCount++
-        if (ball.multiplier > 1) {
-          this.floats.push({
-            x: cup.x + (Math.random() - 0.5) * 40,
-            y: cupTop - 10,
-            text: `+${earned}`,
-            alpha: 1,
-          })
-        }
       }
 
       // 掉出底部
@@ -240,10 +298,46 @@ export class CupGameScene {
     ctx.fillStyle = '#f5deb3'
     ctx.font = 'bold 15px sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText('杯球台', W / 2, 20)
+    const chLabel = `第${(this.gameState.chapterIdx||0)+1}章`
+    ctx.fillText(`${chLabel} 杯球台`, W / 2, 20)
     ctx.fillStyle = '#bbb'
     ctx.font = '12px sans-serif'
-    ctx.fillText(`剩餘：${this.pourCup.ballsLeft}　落定：${this.settledCount}　總球數：${this.totalScore}`, W / 2, 40)
+    ctx.fillText(`剩餘：${this.pourCup.ballsLeft}　落定：${this.settledCount}　🪙 得分：${this.totalScore}`, W / 2, 40)
+
+    // 底部乘數槽
+    for (const slot of this.slots) {
+      const isHit = slot.hitTimer > 0
+      const alpha = isHit ? 1 : 0.78
+      ctx.globalAlpha = alpha
+
+      // 槽底色
+      ctx.fillStyle = slot.color
+      ctx.fillRect(slot.x, slot.y, slot.w, slot.h)
+
+      // 發光邊框
+      if (isHit) {
+        ctx.shadowColor = '#fff'; ctx.shadowBlur = 12
+      }
+      ctx.strokeStyle = isHit ? '#fff' : 'rgba(255,255,255,0.3)'
+      ctx.lineWidth   = isHit ? 2 : 1
+      ctx.strokeRect(slot.x, slot.y, slot.w, slot.h)
+      ctx.shadowBlur  = 0
+
+      // 乘數文字
+      ctx.fillStyle   = '#fff'
+      ctx.font        = `bold ${slot.mult >= 10 ? 16 : 20}px sans-serif`
+      ctx.textAlign   = 'center'
+      ctx.fillText(`×${slot.mult}`, slot.x + slot.w / 2, slot.y + 28)
+
+      ctx.globalAlpha = 1
+    }
+    // 槽位標籤下方
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'
+    ctx.fillRect(18, this.canvas.height - 88, W - 36, 20)
+    ctx.fillStyle = '#f5c518'
+    ctx.font = 'bold 11px sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('目標：進入高分槽！', W / 2, this.canvas.height - 73)
     // 操作提示
     ctx.fillStyle = 'rgba(255,255,255,0.2)'
     ctx.font = '11px sans-serif'
@@ -296,10 +390,12 @@ export class CupGameScene {
     // 飄字
     for (const f of this.floats) {
       ctx.globalAlpha = f.alpha
-      ctx.fillStyle = '#ffd700'
-      ctx.font = 'bold 15px sans-serif'
-      ctx.textAlign = 'center'
+      ctx.fillStyle   = f.color || '#ffd700'
+      ctx.font        = 'bold 15px sans-serif'
+      ctx.textAlign   = 'center'
+      ctx.shadowColor = '#000'; ctx.shadowBlur = 4
       ctx.fillText(f.text, f.x, f.y)
+      ctx.shadowBlur  = 0
     }
     ctx.globalAlpha = 1
     // 結束提示

@@ -1,11 +1,11 @@
 // HomeScene.js — 遊戲大廳（全新設計，對應 Figma UI）
-import { SaveManager }        from '../game/SaveManager.js'
-import { CHAPTERS }           from '../data/chapters.js'
-import { HEROES }             from '../data/heroes.js'
-import { T }                  from '../utils/theme.js'
-import { rrect }              from '../utils/drawHelpers.js'
+import { SaveManager }                          from '../game/SaveManager.js'
+import { CHAPTERS, CHAPTER_BOSS_EMOJI }        from '../data/chapters.js'
+import { HEROES }                              from '../data/heroes.js'
+import { T }                                   from '../utils/theme.js'
+import { rrect }                               from '../utils/drawHelpers.js'
 
-const TOTAL_LEVELS = CHAPTERS.reduce((s, c) => s + c.waves.length, 0)
+const TOTAL_CHAPTERS = CHAPTERS.length  // 3
 
 const TAB_CONFIG = [
   { id: 'shop',      label: '商店', icon: '🏪' },
@@ -27,14 +27,8 @@ const CHAPTER_THEMES = [
   { sky1: '#3a1a7a', sky2: '#200a50', ground1: '#4a2090', ground2: '#300a60', dirt: '#503080' },
 ]
 
-function levelToChapterWave(idx) {
-  let rem = idx
-  for (let c = 0; c < CHAPTERS.length; c++) {
-    if (rem < CHAPTERS[c].waves.length) return { chapterIdx: c, waveIdx: rem }
-    rem -= CHAPTERS[c].waves.length
-  }
-  return { chapterIdx: CHAPTERS.length - 1, waveIdx: CHAPTERS[CHAPTERS.length - 1].waves.length - 1 }
-}
+// 章節主題（對應 CHAPTER_THEMES）
+const CHAPTER_DIFF = ['⭐ 入門', '⭐⭐ 中階', '⭐⭐⭐ 高難']
 
 export class HomeScene {
   constructor(canvas, ctx, callbacks) {
@@ -48,7 +42,8 @@ export class HomeScene {
     this._loop   = this._loop.bind(this)
 
     this.save           = SaveManager.load()
-    this.viewLevel      = Math.min(this.save.unlockedLevelIdx ?? 0, TOTAL_LEVELS - 1)
+    const unlocked      = this.save.unlockedChapterIdx ?? 0
+    this.viewChapter    = Math.min(unlocked, TOTAL_CHAPTERS - 1)
     this.selectedHeroId = this.save.selectedHeroId || 'knight'
     this.activeTab      = 'battle'
     this._btnAreas      = {}
@@ -62,7 +57,7 @@ export class HomeScene {
 
   start() {
     this.save           = SaveManager.load()
-    this.viewLevel      = Math.min(this.save.unlockedLevelIdx ?? 0, TOTAL_LEVELS - 1)
+    this.viewChapter    = Math.min(this.save.unlockedChapterIdx ?? 0, TOTAL_CHAPTERS - 1)
     this.selectedHeroId = this.save.selectedHeroId || 'knight'
     this._onPointerDown = this._onPointerDown.bind(this)
     this.canvas.addEventListener('pointerdown', this._onPointerDown)
@@ -92,15 +87,18 @@ export class HomeScene {
     const ty = (e.clientY - rect.top)  * scaleY
     const A  = this._btnAreas
 
-    if (A.arrowL && _hit(tx, ty, A.arrowL) && this.viewLevel > 0) { this.viewLevel--; return }
+    if (A.arrowL && _hit(tx, ty, A.arrowL) && this.viewChapter > 0) { this.viewChapter--; return }
     if (A.arrowR && _hit(tx, ty, A.arrowR)) {
-      const max = this.save.unlockedLevelIdx ?? 0
-      if (this.viewLevel < max) { this.viewLevel++; return }
+      const max = this.save.unlockedChapterIdx ?? 0
+      if (this.viewChapter < max) { this.viewChapter++; return }
     }
     if (A.battleBtn && _hit(tx, ty, A.battleBtn)) {
-      const { chapterIdx, waveIdx } = levelToChapterWave(this.viewLevel)
-      this.stop()
-      this.callbacks.onStartBattle(chapterIdx, waveIdx, this.selectedHeroId)
+      const unlocked = this.save.unlockedChapterIdx ?? 0
+      if (this.viewChapter <= unlocked) {
+        // 每次都從第 1 波（waveIdx=0）開始
+        this.stop()
+        this.callbacks.onStartBattle(this.viewChapter, 0, this.selectedHeroId)
+      }
       return
     }
     for (const tab of TAB_CONFIG) {
@@ -117,7 +115,7 @@ export class HomeScene {
     const ctx = this.ctx
     const W   = this.canvas.width
     const H   = this.canvas.height
-    const { chapterIdx } = levelToChapterWave(this.viewLevel)
+    const chapterIdx = this.viewChapter
     const theme = CHAPTER_THEMES[chapterIdx] || CHAPTER_THEMES[0]
 
     const bg = ctx.createLinearGradient(0, 0, 0, H)
@@ -289,10 +287,9 @@ export class HomeScene {
   }
 
   _drawCenterContent(ctx, x0, W, y0, H, theme) {
-    const { chapterIdx, waveIdx } = levelToChapterWave(this.viewLevel)
-    const chapter  = CHAPTERS[chapterIdx]
-    const waveData = chapter.waves[waveIdx]
-    const cx       = x0 + W / 2
+    const chapterIdx = this.viewChapter
+    const chapter    = CHAPTERS[chapterIdx]
+    const cx         = x0 + W / 2
 
     const titleY = y0 + H * 0.1
     ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.font = `bold ${W * 0.1}px sans-serif`
@@ -305,8 +302,8 @@ export class HomeScene {
     ctx.fillText(chapter.nameZh, cx, nameY)
     ctx.shadowBlur = 0
 
-    const diff  = waveData.isBoss ? 'BOSS 關' : `波次 ${waveIdx + 1}`
-    const difBg = waveData.isBoss ? '#8800cc' : '#1a6aaa'
+    const diff  = CHAPTER_DIFF[chapterIdx] || '⭐ 入門'
+    const difBg = chapterIdx === 2 ? '#8800cc' : chapterIdx === 1 ? '#1a6aaa' : '#1a8040'
     const dbY   = nameY + H * 0.04
     const dbW   = W * 0.42, dbH = H * 0.058
     ctx.fillStyle = difBg
@@ -359,8 +356,8 @@ export class HomeScene {
 
     const arrY = islandCY - islandH * 0.1
     const arrH = H * 0.07, arrW = W * 0.08
-    const canL = this.viewLevel > 0
-    const canR = this.viewLevel < (this.save.unlockedLevelIdx ?? 0)
+    const canL = this.viewChapter > 0
+    const canR = this.viewChapter < (this.save.unlockedChapterIdx ?? 0)
 
     ctx.globalAlpha = canL ? 0.9 : 0.25
     ctx.fillStyle = 'rgba(255,255,255,0.15)'
@@ -378,36 +375,32 @@ export class HomeScene {
     this._btnAreas.arrowR = { x: islandX + islandW + W*0.02, y: arrY, w: arrW, h: arrH }
     ctx.globalAlpha = 1; ctx.textBaseline = 'alphabetic'
 
-    this._drawChestStrip(ctx, x0, W, y0, H, chapterIdx, waveIdx)
+    this._drawChestStrip(ctx, x0, W, y0, H, chapterIdx)
   }
 
-  _drawChestStrip(ctx, x0, W, y0, H, chapterIdx, waveIdx) {
-    const stripY = y0 + H * 0.76
-    const stripH = H * 0.20
-    const cx     = x0 + W / 2
-    const chapter    = CHAPTERS[chapterIdx]
-    const totalWaves = chapter.waves.length
-    const baseUnlocked = CHAPTERS.slice(0, chapterIdx).reduce((s, c) => s + c.waves.length, 0)
-    const unlockedWave = (chapterIdx === levelToChapterWave(this.viewLevel).chapterIdx)
-      ? (this.save.unlockedLevelIdx ?? 0) - baseUnlocked
-      : totalWaves
+  _drawChestStrip(ctx, x0, W, y0, H, chapterIdx) {
+    const stripY   = y0 + H * 0.76
+    const stripH   = H * 0.20
+    const cx       = x0 + W / 2
+    const bestWave = this.save.bestWave ?? 0
 
+    // Milestones: wave 5, wave 10, BOSS (wave 15) — 0-indexed: 4, 9, 14
     const milestones = [
-      { wave: Math.floor(totalWaves * 0.4) - 1, label: '波次 ' + Math.floor(totalWaves * 0.4) },
-      { wave: Math.floor(totalWaves * 0.7) - 1, label: '波次 ' + Math.floor(totalWaves * 0.7) },
-      { wave: totalWaves - 1,                    label: 'BOSS' },
+      { waveIdx: 4,  label: '波次 5'  },
+      { waveIdx: 9,  label: '波次 10' },
+      { waveIdx: 14, label: 'BOSS'   },
     ]
     const slotW  = W / 3.5
     const startX = cx - slotW
 
     milestones.forEach((ms, i) => {
-      const sx      = startX + i * slotW
-      const cleared = unlockedWave > ms.wave
-      const current = !cleared && unlockedWave === ms.wave
+      const sx        = startX + i * slotW
+      const flatWave  = chapterIdx * 15 + ms.waveIdx
+      const cleared   = bestWave > flatWave
 
       ctx.font = `${stripH * 0.52}px serif`
       ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'
-      ctx.globalAlpha = cleared ? 1.0 : current ? 0.85 : 0.45
+      ctx.globalAlpha = cleared ? 1.0 : 0.45
       ctx.fillText(i === 2 ? '👑' : cleared ? '🎁' : '📦', sx, stripY + stripH * 0.7)
       ctx.globalAlpha = 1
 

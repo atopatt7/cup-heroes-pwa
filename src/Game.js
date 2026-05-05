@@ -80,7 +80,7 @@ export class Game {
   }
 
   showGameOver(gameState) {
-    SaveManager.updateBestWave(gameState.chapterIdx * 4 + (gameState.waveIdx || 0))
+    SaveManager.updateBestWave(gameState.chapterIdx * 15 + (gameState.waveIdx || 0))
     this._switch(new GameOverScene(
       this.canvas, this.ctx, gameState,
       () => this.showHome()
@@ -99,8 +99,7 @@ export class Game {
   }
 
   _onBattleVictory(gameState) {
-    const currentLevelIdx = gameState.chapterIdx * 4 + gameState.waveIdx
-    SaveManager.advanceLevel(currentLevelIdx + 1)
+    // 每場戰鬥後進入球台
     this.startCupGame(gameState)
   }
 
@@ -109,18 +108,26 @@ export class Game {
     const nextWave = gameState.waveIdx + 1
 
     if (nextWave >= chapter.waves.length) {
-      const nextChapter = gameState.chapterIdx + 1
+      // ── 章節通關 ───────────────────────────────────────────
+      const clearedChapter = gameState.chapterIdx
+      const nextChapter    = clearedChapter + 1
+
+      // 解鎖英雄（依章節）
+      if (clearedChapter === 0) SaveManager.unlockHero('rogue')
+      if (clearedChapter === 1) SaveManager.unlockHero('barbarian')
+      if (clearedChapter === 2) SaveManager.unlockHero('druid')
+
       if (nextChapter >= TOTAL_CHAPTERS) {
+        // 全部 3 章全通關 → 勝利畫面
+        SaveManager.updateBestWave(TOTAL_CHAPTERS * 15)
         this.showVictory(gameState)
       } else {
-        gameState.chapterIdx = nextChapter
-        gameState.waveIdx    = 0
-        if (nextChapter === 1) SaveManager.unlockHero('rogue')
-        if (nextChapter === 2) SaveManager.unlockHero('barbarian')
-        if (nextChapter === 3) SaveManager.unlockHero('druid')
-        this.startBattle(gameState)
+        // 解鎖下一章，回到首頁讓玩家選章節
+        SaveManager.unlockChapter(nextChapter)
+        this.showHome()
       }
     } else {
+      // ── 同章下一波 ─────────────────────────────────────────
       gameState.waveIdx = nextWave
       this.startBattle(gameState)
     }

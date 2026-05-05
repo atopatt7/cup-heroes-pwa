@@ -1,112 +1,91 @@
 // chapters.js — 章節與波次結構
-// 3 章節，每章 3 波普通 + 1 波 Boss
-// 靈感來自原版 Cup Heroes 的 Chapter Race 系統
+// 3 章節，每章 15 波（波次 1-14 普通 + 波次 15 BOSS）
+
+// 短手函式：建立波次
+function w(wave, enemies, isBoss = false) {
+  return { wave, label: isBoss ? 'BOSS 關' : `波次 ${wave}`, isBoss, enemies }
+}
+// 短手函式：建立敵人規格
+function e(type, count, hpMult, atkMult) {
+  return { type, count, hpMult, atkMult }
+}
 
 export const CHAPTERS = [
+  // ── 第 1 章：森林小道 ─────────────────────────────────────
   {
     id: 1,
     name: 'Forest Trail',
     nameZh: '森林小道',
-    bg: 'forest',   // BattleScene 用來選背景色調
+    desc: '新手副本，適合熟悉系統',
+    bg: 'forest',
     waves: [
-      {
-        wave: 1, label: '波次 1',
-        enemies: [
-          { type: 'slime',  count: 2, hpMult: 1.0, atkMult: 1.0 },
-        ],
-      },
-      {
-        wave: 2, label: '波次 2',
-        enemies: [
-          { type: 'slime',  count: 2, hpMult: 1.1, atkMult: 1.1 },
-          { type: 'goblin', count: 1, hpMult: 1.0, atkMult: 1.0 },
-        ],
-      },
-      {
-        wave: 3, label: '波次 3',
-        enemies: [
-          { type: 'goblin', count: 2, hpMult: 1.2, atkMult: 1.2 },
-          { type: 'orc',    count: 1, hpMult: 1.0, atkMult: 1.0 },
-        ],
-      },
-      {
-        wave: 4, label: 'BOSS 關', isBoss: true,
-        enemies: [
-          { type: 'forest_guardian', count: 1, hpMult: 1.0, atkMult: 1.0 },
-        ],
-      },
+      w( 1, [e('slime',  2, 1.0, 1.0)]),
+      w( 2, [e('slime',  3, 1.1, 1.0)]),
+      w( 3, [e('slime',  2, 1.2, 1.1), e('goblin', 1, 1.0, 1.0)]),
+      w( 4, [e('slime',  2, 1.2, 1.1), e('goblin', 2, 1.1, 1.0)]),
+      w( 5, [e('slime',  3, 1.3, 1.1), e('goblin', 2, 1.2, 1.1)]),
+      w( 6, [e('goblin', 2, 1.3, 1.2), e('orc',    1, 1.0, 1.0)]),
+      w( 7, [e('goblin', 3, 1.4, 1.2), e('orc',    1, 1.1, 1.0)]),
+      w( 8, [e('goblin', 2, 1.4, 1.3), e('orc',    2, 1.1, 1.1)]),
+      w( 9, [e('goblin', 1, 1.5, 1.3), e('orc',    2, 1.2, 1.1)]),
+      w(10, [e('goblin', 2, 1.5, 1.4), e('orc',    2, 1.3, 1.2)]),
+      w(11, [e('orc',    3, 1.3, 1.2), e('troll',  1, 1.0, 1.0)]),
+      w(12, [e('orc',    2, 1.4, 1.3), e('troll',  2, 1.0, 1.0)]),
+      w(13, [e('orc',    2, 1.5, 1.4), e('troll',  2, 1.1, 1.0)]),
+      w(14, [e('orc',    3, 1.5, 1.4), e('troll',  2, 1.2, 1.1)]),
+      w(15, [e('forest_guardian', 1, 1.0, 1.0)], true),
     ],
   },
 
+  // ── 第 2 章：石頭城堡 ─────────────────────────────────────
   {
     id: 2,
     name: 'Stone Castle',
     nameZh: '石頭城堡',
+    desc: '中階戰場，trolls 開始登場',
     bg: 'castle',
     waves: [
-      {
-        wave: 1, label: '波次 1',
-        enemies: [
-          { type: 'orc',    count: 2, hpMult: 1.3, atkMult: 1.2 },
-          { type: 'goblin', count: 1, hpMult: 1.2, atkMult: 1.1 },
-        ],
-      },
-      {
-        wave: 2, label: '波次 2',
-        enemies: [
-          { type: 'orc',    count: 2, hpMult: 1.5, atkMult: 1.3 },
-          { type: 'troll',  count: 1, hpMult: 1.0, atkMult: 1.0 },
-        ],
-      },
-      {
-        wave: 3, label: '波次 3',
-        enemies: [
-          { type: 'troll',  count: 2, hpMult: 1.2, atkMult: 1.2 },
-          { type: 'orc',    count: 2, hpMult: 1.5, atkMult: 1.3 },
-        ],
-      },
-      {
-        wave: 4, label: 'BOSS 關', isBoss: true,
-        enemies: [
-          { type: 'iron_knight', count: 1, hpMult: 1.0, atkMult: 1.0 },
-        ],
-      },
+      w( 1, [e('orc',   2, 1.3, 1.2), e('goblin', 2, 1.4, 1.2)]),
+      w( 2, [e('orc',   3, 1.4, 1.2), e('goblin', 2, 1.5, 1.2)]),
+      w( 3, [e('orc',   2, 1.5, 1.3), e('troll',  1, 1.0, 1.0)]),
+      w( 4, [e('orc',   3, 1.5, 1.3), e('troll',  1, 1.1, 1.0)]),
+      w( 5, [e('orc',   2, 1.6, 1.4), e('troll',  2, 1.1, 1.0)]),
+      w( 6, [e('orc',   3, 1.6, 1.4), e('troll',  2, 1.2, 1.1)]),
+      w( 7, [e('orc',   2, 1.7, 1.5), e('troll',  3, 1.2, 1.1)]),
+      w( 8, [e('orc',   2, 1.7, 1.5), e('troll',  3, 1.3, 1.2)]),
+      w( 9, [e('orc',   1, 1.8, 1.5), e('troll',  3, 1.4, 1.2)]),
+      w(10, [e('troll', 3, 1.5, 1.3), e('orc',    2, 1.8, 1.6)]),
+      w(11, [e('troll', 4, 1.5, 1.3), e('orc',    1, 1.9, 1.6)]),
+      w(12, [e('troll', 4, 1.6, 1.4), e('orc',    2, 2.0, 1.7)]),
+      w(13, [e('troll', 4, 1.7, 1.5), e('orc',    2, 2.0, 1.8)]),
+      w(14, [e('troll', 5, 1.8, 1.5), e('orc',    2, 2.1, 1.8)]),
+      w(15, [e('iron_knight', 1, 1.0, 1.0)], true),
     ],
   },
 
+  // ── 第 3 章：暗黑地城 ─────────────────────────────────────
   {
     id: 3,
     name: 'Dark Dungeon',
     nameZh: '暗黑地城',
+    desc: '高難度深淵，只有強者能過',
     bg: 'dungeon',
     waves: [
-      {
-        wave: 1, label: '波次 1',
-        enemies: [
-          { type: 'troll',  count: 2, hpMult: 1.6, atkMult: 1.5 },
-          { type: 'orc',    count: 2, hpMult: 1.8, atkMult: 1.4 },
-        ],
-      },
-      {
-        wave: 2, label: '波次 2',
-        enemies: [
-          { type: 'troll',  count: 3, hpMult: 1.8, atkMult: 1.6 },
-          { type: 'goblin', count: 2, hpMult: 2.0, atkMult: 1.5 },
-        ],
-      },
-      {
-        wave: 3, label: '波次 3',
-        enemies: [
-          { type: 'troll',  count: 2, hpMult: 2.0, atkMult: 1.8 },
-          { type: 'orc',    count: 3, hpMult: 2.0, atkMult: 1.6 },
-        ],
-      },
-      {
-        wave: 4, label: 'BOSS 關', isBoss: true,
-        enemies: [
-          { type: 'void_lord', count: 1, hpMult: 1.0, atkMult: 1.0 },
-        ],
-      },
+      w( 1, [e('troll', 3, 1.8, 1.6), e('orc',    2, 2.0, 1.7)]),
+      w( 2, [e('troll', 3, 1.9, 1.7), e('orc',    3, 2.0, 1.8)]),
+      w( 3, [e('troll', 4, 2.0, 1.7), e('orc',    2, 2.2, 1.8)]),
+      w( 4, [e('troll', 4, 2.0, 1.8), e('orc',    3, 2.2, 1.9)]),
+      w( 5, [e('troll', 4, 2.1, 1.8), e('orc',    3, 2.4, 2.0)]),
+      w( 6, [e('troll', 5, 2.2, 1.9), e('orc',    2, 2.4, 2.0)]),
+      w( 7, [e('troll', 5, 2.2, 2.0), e('orc',    3, 2.5, 2.1)]),
+      w( 8, [e('troll', 5, 2.3, 2.0), e('orc',    3, 2.6, 2.1)]),
+      w( 9, [e('troll', 5, 2.4, 2.1), e('goblin', 3, 2.8, 2.2)]),
+      w(10, [e('troll', 5, 2.5, 2.2), e('orc',    3, 2.8, 2.2)]),
+      w(11, [e('troll', 6, 2.6, 2.3), e('orc',    2, 3.0, 2.3)]),
+      w(12, [e('troll', 6, 2.7, 2.4), e('orc',    3, 3.0, 2.4)]),
+      w(13, [e('troll', 6, 2.8, 2.5), e('orc',    3, 3.2, 2.5)]),
+      w(14, [e('troll', 7, 3.0, 2.6), e('orc',    2, 3.2, 2.6)]),
+      w(15, [e('void_lord', 1, 1.0, 1.0)], true),
     ],
   },
 ]
@@ -141,7 +120,6 @@ export const ENEMY_TYPES = {
     reward: 18,
     emoji: '🧟',
   },
-  // Boss 類型
   forest_guardian: {
     name: 'Forest Guardian', nameZh: '森林守護者',
     hp: 280, atk: 22, def: 10,
@@ -168,6 +146,9 @@ export const ENEMY_TYPES = {
   },
 }
 
+// Boss emoji per chapter (for HomeScene preview)
+export const CHAPTER_BOSS_EMOJI = ['🌲', '🤺', '👑']
+
 // 根據章節 + 波次資料生成敵人列表
 export function generateWaveEnemies(chapterIdx, waveIdx) {
   const chapter = CHAPTERS[chapterIdx]
@@ -184,11 +165,12 @@ export function generateWaveEnemies(chapterIdx, waveIdx) {
     for (let i = 0; i < spec.count; i++) {
       enemies.push({
         ...template,
+        type:  spec.type,
         hp:    Math.round(template.hp    * spec.hpMult),
         maxHp: Math.round(template.hp    * spec.hpMult),
         atk:   Math.round(template.atk   * spec.atkMult),
         x: xOffset,
-        y: 0, // BattleScene 根據 groundY 設定
+        y: 0,
       })
       xOffset += template.size + 20
     }
@@ -197,12 +179,13 @@ export function generateWaveEnemies(chapterIdx, waveIdx) {
   return enemies
 }
 
-// 取得章節/波次標籤
+// 取得章節/波次標籤（BattleScene 用）
 export function getWaveLabel(chapterIdx, waveIdx) {
   const chapter = CHAPTERS[chapterIdx]
   if (!chapter) return ''
   const wave = chapter.waves[waveIdx]
-  return wave ? `第${chapterIdx + 1}章 ${wave.label}` : ''
+  return wave ? `第${chapterIdx + 1}章  ${wave.label}` : ''
 }
 
-export const TOTAL_CHAPTERS = CHAPTERS.length
+export const TOTAL_CHAPTERS  = CHAPTERS.length        // 3
+export const WAVES_PER_CHAPTER = 15

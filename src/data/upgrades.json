@@ -1,0 +1,12 @@
+[
+  { "id": "atk_up_s",  "name": "攻擊強化 I",   "desc": "ATK +5",              "effect": { "stat": "atk", "value": 5  }, "rarity": "common"   },
+  { "id": "atk_up_m",  "name": "攻擊強化 II",  "desc": "ATK +10",             "effect": { "stat": "atk", "value": 10 }, "rarity": "rare"     },
+  { "id": "def_up_s",  "name": "防禦強化 I",   "desc": "DEF +4",              "effect": { "stat": "def", "value": 4  }, "rarity": "common"   },
+  { "id": "def_up_m",  "name": "防禦強化 II",  "desc": "DEF +8",              "effect": { "stat": "def", "value": 8  }, "rarity": "rare"     },
+  { "id": "hp_up_s",   "name": "生命強化 I",   "desc": "HP +20",              "effect": { "stat": "hp",  "value": 20 }, "rarity": "common"   },
+  { "id": "hp_up_m",   "name": "生命強化 II",  "desc": "HP +40",              "effect": { "stat": "hp",  "value": 40 }, "rarity": "rare"     },
+  { "id": "heal_s",    "name": "治療藥草",      "desc": "回復 HP 30",          "effect": { "type": "heal", "value": 30 }, "rarity": "common"  },
+  { "id": "heal_m",    "name": "強效藥水",      "desc": "回復 HP 60",          "effect": { "type": "heal", "value": 60 }, "rarity": "rare"    },
+  { "id": "double_atk","name": "連擊",          "desc": "20% 機率攻擊兩次",    "effect": { "type": "passive", "id": "double_atk" }, "rarity": "epic" },
+  { "id": "shield",    "name": "盾牆",          "desc": "首次受擊減傷 50%",    "effect": { "type": "passive", "id": "shield"    }, "rarity": "epic" }
+]

@@ -1,0 +1,17 @@
+[
+  { "id": "slime",    "nameZh": "史萊姆",   "wave": 1,  "hp": 30,  "atk": 5,  "def": 2,  "reward": 10, "emoji": "🟢" },
+  { "id": "goblin",   "nameZh": "哥布林",   "wave": 2,  "hp": 45,  "atk": 8,  "def": 3,  "reward": 15, "emoji": "👺" },
+  { "id": "skeleton", "nameZh": "骷髏兵",   "wave": 3,  "hp": 55,  "atk": 10, "def": 5,  "reward": 18, "emoji": "💀" },
+  { "id": "orc",      "nameZh": "獸人",     "wave": 4,  "hp": 70,  "atk": 12, "def": 6,  "reward": 22, "emoji": "👹" },
+  { "id": "wolf",     "nameZh": "惡狼",     "wave": 5,  "hp": 60,  "atk": 15, "def": 4,  "reward": 25, "emoji": "🐺" },
+  { "id": "troll",    "nameZh": "山怪",     "wave": 6,  "hp": 90,  "atk": 14, "def": 8,  "reward": 28, "emoji": "🧌" },
+  { "id": "witch",    "nameZh": "女巫",     "wave": 7,  "hp": 75,  "atk": 18, "def": 5,  "reward": 30, "emoji": "🧙" },
+  { "id": "golem",    "nameZh": "石像鬼",   "wave": 8,  "hp": 120, "atk": 16, "def": 12, "reward": 35, "emoji": "🗿" },
+  { "id": "vampire",  "nameZh": "吸血鬼",   "wave": 9,  "hp": 100, "atk": 22, "def": 8,  "reward": 40, "emoji": "🧛" },
+  { "id": "demon",    "nameZh": "惡魔",     "wave": 10, "hp": 130, "atk": 25, "def": 10, "reward": 45, "emoji": "😈" },
+  { "id": "giant",    "nameZh": "巨人",     "wave": 11, "hp": 160, "atk": 20, "def": 15, "reward": 50, "emoji": "🦁" },
+  { "id": "medusa",   "nameZh": "美杜莎",   "wave": 12, "hp": 140, "atk": 28, "def": 12, "reward": 55, "emoji": "🐍" },
+  { "id": "phoenix",  "nameZh": "火鳳凰",   "wave": 13, "hp": 150, "atk": 30, "def": 10, "reward": 60, "emoji": "🔥" },
+  { "id": "lich",     "nameZh": "巫妖",     "wave": 14, "hp": 180, "atk": 32, "def": 14, "reward": 70, "emoji": "☠️" },
+  { "id": "dragon",   "nameZh": "黑龍 BOSS","wave": 15, "hp": 500, "atk": 45, "def": 20, "reward": 200,"emoji": "🐉", "isBoss": true }
+]

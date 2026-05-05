@@ -1,0 +1,29 @@
+[
+  {
+    "id": "knight",
+    "name": "Knight Cup",
+    "nameZh": "騎士杯",
+    "description": "攻防平衡的預設英雄，堅固可靠。",
+    "unlocked": true,
+    "baseStats": {
+      "hp": 120,
+      "atk": 20,
+      "def": 15
+    },
+    "emoji": "🛡️"
+  },
+  {
+    "id": "ninja",
+    "name": "Ninja Cup",
+    "nameZh": "忍者杯",
+    "description": "攻擊極高但防禦薄弱，需要解鎖。",
+    "unlocked": false,
+    "unlockCondition": "通關第5波",
+    "baseStats": {
+      "hp": 80,
+      "atk": 35,
+      "def": 8
+    },
+    "emoji": "⚔️"
+  }
+]

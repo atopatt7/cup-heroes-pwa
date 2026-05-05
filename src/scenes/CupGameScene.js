@@ -9,7 +9,7 @@
 import { T } from '../utils/theme.js'
 import { rrect } from '../utils/drawHelpers.js'
 
-const MAX_LIVE_BALLS = 48   // 場上最多同時存在球數（防爆炸）
+const MAX_LIVE_BALLS = 300  // 允許大連鎖（X5×X5×X5 最多 ~150 顆，保留安全餘量）
 
 export class CupGameScene {
   constructor(canvas, ctx, gameState, onComplete) {
@@ -84,58 +84,63 @@ export class CupGameScene {
     const botY    = H * 0.70
 
     // ── 模板池（按難度分三級）──────────────────────────────
-    // 設計原則：每個模板都合理，高倍率段較窄（由 _buildGateRow 自動計算）
-    // basic：最高 X3，適合新手 / 開場門
-    // mid  ：含 X4，中等挑戰
-    // high ：含 X5，高階獎勵
+    // basic：最高 X3；mid：含 X4；high：含 X5
+    // 每個模板打亂段順序後使用，讓左右位置每次不同
     const POOLS = {
       basic: [
-        [2, 2],
-        [2, 3], [3, 2],
-        [2, 2, 2],
-        [3, 2, 2], [2, 2, 3], [2, 3, 2],
+        [2, 2], [2, 3], [3, 2],
+        [2, 2, 2], [3, 2, 2], [2, 2, 3], [2, 3, 2],
       ],
       mid: [
-        [4, 2], [2, 4],
-        [3, 3],
+        [4, 2], [2, 4], [3, 3],
         [4, 2, 2], [2, 4, 2], [2, 2, 4],
         [4, 3, 2], [2, 3, 4], [3, 4, 2],
         [3, 3, 2], [2, 3, 3],
       ],
       high: [
-        [5, 2], [2, 5],
-        [5, 3], [3, 5],
+        [5, 2], [2, 5], [5, 3], [3, 5],
         [5, 2, 2], [2, 5, 2], [2, 2, 5],
         [5, 3, 2], [2, 3, 5],
         [5, 4, 2], [4, 5, 2], [2, 4, 5],
       ],
     }
 
-    // 從指定池隨機取一個模板，並隨機打亂段的左右順序
-    const pick = (tier) => _shuffle([...POOLS[tier][Math.floor(Math.random() * POOLS[tier].length)]])
+    const pick = (tier) =>
+      _shuffle([...POOLS[tier][Math.floor(Math.random() * POOLS[tier].length)]])
 
     // ── 每章抽取策略 ─────────────────────────────────────────
-    // 章節越高 → 門越多、高倍率段越常見
+    // 所有章節都有機率出現 3 排連鎖（產生大變數）
+    // 章節越高 → 高倍率出現機率越大
+    //
+    // 3 排 X5 理論最大值：6 球 × 5 × 5 × 5 = 750（但釘子使實際命中率低）
+    // 一般預期：大多數球 0-1 門命中 → 普通局；偶爾 2-3 門連鎖 → 爽局
     let rowMults
+    const r = Math.random()
+
     if (chapter === 0) {
-      // 第 1 章：2 列，先 basic 暖身、再 mid 挑戰
-      rowMults = [
-        pick('basic'),
-        pick('mid'),
-      ]
+      // 第 1 章：60% 出 2 排（basic+mid），40% 出 3 排（加一個 mid/high）
+      if (r < 0.60) {
+        rowMults = [pick('basic'), pick('mid')]
+      } else {
+        rowMults = [pick('basic'), pick('mid'), Math.random() < 0.5 ? pick('mid') : pick('high')]
+      }
     } else if (chapter === 1) {
-      // 第 2 章：3 列，mid 為主，60% 機率出現一個 high
-      rowMults = [
-        pick('mid'),
-        pick('mid'),
-        Math.random() < 0.6 ? pick('high') : pick('mid'),
-      ]
+      // 第 2 章：30% 出 2 排（mid+high），70% 出 3 排
+      if (r < 0.30) {
+        rowMults = [pick('mid'), pick('high')]
+      } else {
+        rowMults = [
+          pick('mid'),
+          Math.random() < 0.5 ? pick('mid') : pick('high'),
+          pick('high'),
+        ]
+      }
     } else {
-      // 第 3 章：3 列，high 為主，第一列偶爾是 mid
+      // 第 3 章：永遠 3 排，全部 mid/high，多數 high
       rowMults = [
-        Math.random() < 0.35 ? pick('mid') : pick('high'),
+        Math.random() < 0.3 ? pick('mid') : pick('high'),
         pick('high'),
-        pick('high'),
+        Math.random() < 0.3 ? pick('mid') : pick('high'),
       ]
     }
 
@@ -510,12 +515,19 @@ export class CupGameScene {
     // 上方倒球杯
     this._drawPourCup(ctx)
 
-    // 球
+    // 球（球多時改用簡易渲染避免卡頓）
+    const liveCnt = this.balls.filter(b => !b.settled && !b.inCup).length
+    const simpleRender = liveCnt > 40   // 超過 40 顆飛行球 → 省略漸層
     for (const ball of this.balls) {
       if (ball.inCup || ball.y > H + 10) continue
       ctx.beginPath()
       ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2)
-      if (!ball.settled) {
+      if (ball.settled) {
+        ctx.fillStyle = '#8899aa88'
+      } else if (simpleRender) {
+        // 簡易：純色 + 半透明，省 GPU
+        ctx.fillStyle = (ball.color || '#64b5f6') + 'ee'
+      } else {
         const bg2 = ctx.createRadialGradient(
           ball.x - 2, ball.y - 2, 1,
           ball.x, ball.y, ball.r
@@ -524,8 +536,6 @@ export class CupGameScene {
         bg2.addColorStop(0.45, ball.color || '#c8e8ff')
         bg2.addColorStop(1, (ball.color || '#6090d0') + 'cc')
         ctx.fillStyle = bg2
-      } else {
-        ctx.fillStyle = '#8899aacc'
       }
       ctx.fill()
     }

@@ -10,7 +10,7 @@ export const druid = {
   critMult: 2,
   color: '#388E3C',
   colorDark: '#1b5e20',
-  startingCards: ['vampiric_touch', 'thorn_blast'],
+  startingCards: ['rejuvenation', 'thorns_aura'],
   emoji: '🌿',
   unlocked: false,
   unlockHint: '通關第三章解鎖',

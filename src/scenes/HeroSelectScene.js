@@ -1,6 +1,6 @@
 import { SaveManager }                              from '../game/SaveManager.js'
 import { HEROES }                                  from '../data/heroes.js'
-import { CARDS }                                   from '../data/cards.js'
+import { getCardById }                             from '../data/cards.js'
 import { T }                                       from '../utils/theme.js'
 import { drawSky, drawGround, drawBtn, rrect }     from '../utils/drawHelpers.js'
 
@@ -198,7 +198,7 @@ export class HeroSelectScene {
       // 起始卡牌預覽（最多 3 個）
       const starters = hero.startingCards || []
       starters.slice(0, 3).forEach((cardId, ci) => {
-        const c = CARDS[cardId]
+        const c = getCardById(cardId)
         if (!c) return
         const iconX = cardX + 72 + ci * 44
         const iconY = cy + 78
@@ -232,5 +232,5 @@ export class HeroSelectScene {
     ctx.scale(pulse, pulse)
     drawBtn(ctx, 0, 0, 220, 52, '⚔️  出發冒險！', T.btnRed, T.btnRedDark, 26)
     ctx.restore()
-  }
+}
 }

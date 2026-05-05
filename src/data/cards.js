@@ -1,370 +1,538 @@
-// cards.js — 卡牌系統（靈感來自原版 Cup Heroes 技能卡）
-// 觸發時機: 'passive' | 'battle_start' | 'on_attack' | 'on_crit' | 'on_kill' | 'on_hit' | 'on_low_hp'
-// 稀有度顏色: common=#8B9BB4, rare=#1E88E5, epic=#8E24AA, legendary=#F9A825
+// cards.js — 卡牌系統（通用牌 × 10 + 英雄牌 × 5/英雄，星級升級）
+//
+// group   : 'universal' | 'hero'
+// heroId  : undefined（通用）| 'knight' | 'rogue' | 'barbarian' | 'druid'
+// desc    : (stars: number) => string  — 隨星級顯示不同數值
+// apply   : (state, ctx, stars=1) — 效果隨星級增強
+// 觸發時機: 'passive' | 'battle_start' | 'on_attack' | 'on_crit' | 'on_kill' | 'on_hit'
+//
+// 星級規則：
+//   重複選到同一張牌 → +1 星（不重複加入牌組，而是升星）
+//   最多 5 星；滿星後不再出現於選項
 
-export const RARITY = {
-  common:    { label: 'Common',    color: '#8B9BB4', glow: '#c0cfe0', stars: 1 },
-  rare:      { label: 'Rare',      color: '#1E88E5', glow: '#64b5f6', stars: 2 },
-  epic:      { label: 'Epic',      color: '#8E24AA', glow: '#ce93d8', stars: 3 },
-  legendary: { label: 'Legendary', color: '#F9A825', glow: '#ffe082', stars: 4 },
+export const MAX_STARS = 5
+
+// ── 星級縮放工具 ─────────────────────────────────────────────
+// 每升 1 星效果 × (1 + stepPct)，stepPct 預設 0.15（每星 +15%）
+export function sc(base, stars, stepPct = 0.15) {
+  return Math.round(base * (1 + (stars - 1) * stepPct))
+}
+// 小數版：每星加固定值 step
+export function scAdd(base, stars, step) {
+  return +(base + (stars - 1) * step).toFixed(3)
 }
 
-// ── 卡牌定義 ─────────────────────────────────────────────────────────────────
-export const CARDS = {
+// ── 通用牌（所有英雄可取得，共 10 張）─────────────────────────
+export const UNIVERSAL_CARDS = {
 
-  // ══ COMMON ══════════════════════════════════════════════════════════════
-  shield_wall: {
-    id: 'shield_wall', rarity: 'common',
-    name: 'Shield Wall', nameZh: '盾牆',
-    icon: '🛡️',
-    desc: '受傷時減少20%傷害',
-    trigger: 'passive',
-    apply(state) {
-      state.player.dmgReduction = (state.player.dmgReduction || 0) + 0.20
-    },
-    battleDesc: '盾牆 減傷20%',
-  },
-
-  double_strike: {
-    id: 'double_strike', rarity: 'common',
-    name: 'Double Strike', nameZh: '雙擊',
-    icon: '⚔️',
-    desc: '每次攻擊追加一次半傷',
-    trigger: 'on_attack',
-    apply(state, ctx) {
-      const bonus = Math.floor(ctx.damage * 0.5)
-      ctx.target.hp -= bonus
-      ctx.extraDamage = (ctx.extraDamage || 0) + bonus
-      return `雙擊 +${bonus}`
-    },
-    battleDesc: '雙擊',
-  },
-
-  quick_shot: {
-    id: 'quick_shot', rarity: 'common',
-    name: 'Quick Shot', nameZh: '快速射擊',
-    icon: '🏹',
-    desc: '攻速提升25%',
-    trigger: 'passive',
-    apply(state) {
-      state.player.spd = (state.player.spd || 1) * 1.25
-    },
-    battleDesc: '快速射擊 攻速+25%',
-  },
-
-  battle_cry: {
-    id: 'battle_cry', rarity: 'common',
-    name: 'Battle Cry', nameZh: '戰吼',
-    icon: '📣',
-    desc: '戰鬥開始時攻擊力+8',
-    trigger: 'battle_start',
-    apply(state) {
-      state.player.atk += 8
-      return '戰吼 ATK+8'
-    },
-    battleDesc: '戰吼',
-  },
-
-  quick_heal: {
-    id: 'quick_heal', rarity: 'common',
-    name: 'Quick Heal', nameZh: '急速治癒',
-    icon: '💊',
-    desc: '戰鬥開始時恢復15%最大HP',
-    trigger: 'battle_start',
-    apply(state) {
-      const heal = Math.floor(state.player.maxHp * 0.15)
-      state.player.hp = Math.min(state.player.hp + heal, state.player.maxHp)
-      return `急速治癒 +${heal}HP`
-    },
-    battleDesc: '急速治癒',
-  },
-
-  ball_bonus: {
-    id: 'ball_bonus', rarity: 'common',
-    name: 'Ball Bonus', nameZh: '額外球數',
-    icon: '⚪',
-    desc: '杯球台球數+3',
-    trigger: 'passive',
-    apply(state) {
-      state.player.bonusBalls = (state.player.bonusBalls || 0) + 3
-    },
-    battleDesc: '額外球數',
-  },
-
-  // ══ RARE ════════════════════════════════════════════════════════════════
-  battle_frenzy: {
-    id: 'battle_frenzy', rarity: 'rare',
-    name: 'Battle Frenzy', nameZh: '戰鬥狂熱',
-    icon: '🔥',
-    desc: '每次擊殺攻擊力+6（最多+30）',
-    trigger: 'on_kill',
-    apply(state) {
-      const gained = Math.min(6, 30 - (state.player._frenzyStacks || 0) * 6)
-      if (gained > 0) {
-        state.player.atk += gained
-        state.player._frenzyStacks = (state.player._frenzyStacks || 0) + 1
-        return `戰鬥狂熱 ATK+${gained}`
-      }
-    },
-    battleDesc: '戰鬥狂熱',
-  },
-
-  vampiric_touch: {
-    id: 'vampiric_touch', rarity: 'rare',
-    name: 'Vampiric Touch', nameZh: '吸血觸碰',
-    icon: '🧛',
-    desc: '每次攻擊吸取傷害的25%為HP',
-    trigger: 'on_attack',
-    apply(state, ctx) {
-      const heal = Math.floor(ctx.damage * 0.25)
-      state.player.hp = Math.min(state.player.hp + heal, state.player.maxHp)
-      return `吸血 +${heal}HP`
-    },
-    battleDesc: '吸血觸碰',
-  },
-
-  iron_will: {
-    id: 'iron_will', rarity: 'rare',
-    name: 'Iron Will', nameZh: '鐵血意志',
+  power_up: {
+    id: 'power_up', group: 'universal',
+    name: 'Power Up', nameZh: '力量強化',
     icon: '💪',
-    desc: '一次致命傷可以以1HP存活',
-    trigger: 'on_hit',
-    _used: false,
-    apply(state, ctx) {
-      if (!state.player._ironWillUsed && state.player.hp <= 0) {
-        state.player.hp = 1
-        state.player._ironWillUsed = true
-        return '鐵血意志 絕境存活！'
-      }
+    desc: (s = 1) => `攻擊力 +${sc(10, s)}%`,
+    trigger: 'passive',
+    apply(state, _ctx, stars = 1) {
+      state.player.atk = Math.round(state.player.atk * (1 + sc(10, stars) / 100))
     },
-    battleDesc: '鐵血意志',
   },
 
-  crowd_shot: {
-    id: 'crowd_shot', rarity: 'rare',
-    name: 'Crowd Shot', nameZh: '群攻射擊',
-    icon: '🎯',
-    desc: '40%機率攻擊所有敵人',
-    trigger: 'on_attack',
-    apply(state, ctx) {
-      if (Math.random() < 0.40) {
-        let total = 0
-        for (const e of state.enemies) {
-          if (e.hp > 0 && e !== ctx.target) {
-            const splash = Math.floor(ctx.damage * 0.6)
-            e.hp -= splash
-            total += splash
-          }
-        }
-        if (total > 0) return `群攻 額外${total}傷害`
-      }
+  armor_up: {
+    id: 'armor_up', group: 'universal',
+    name: 'Armor Up', nameZh: '防禦強化',
+    icon: '🛡️',
+    desc: (s = 1) => `防禦力 +${sc(10, s, 0.2)}`,
+    trigger: 'passive',
+    apply(state, _ctx, stars = 1) {
+      state.player.def += sc(10, stars, 0.2)
     },
-    battleDesc: '群攻射擊',
   },
 
-  berserk_charge: {
-    id: 'berserk_charge', rarity: 'rare',
-    name: 'Berserk Charge', nameZh: '狂暴衝鋒',
+  vitality: {
+    id: 'vitality', group: 'universal',
+    name: 'Vitality', nameZh: '生命強化',
+    icon: '❤️',
+    desc: (s = 1) => `最大HP +${sc(25, s)}`,
+    trigger: 'passive',
+    apply(state, _ctx, stars = 1) {
+      const bonus = sc(25, stars)
+      state.player.maxHp += bonus
+      state.player.hp    += bonus
+    },
+  },
+
+  swift_strike: {
+    id: 'swift_strike', group: 'universal',
+    name: 'Swift Strike', nameZh: '迅捷攻擊',
     icon: '⚡',
-    desc: 'HP低於50%時攻擊力翻倍',
+    desc: (s = 1) => `攻速 +${sc(15, s)}%`,
     trigger: 'passive',
-    apply(state) {
-      // 動態效果，在傷害計算前檢查
-      state.player._berserker = true
+    apply(state, _ctx, stars = 1) {
+      state.player.spd = +((state.player.spd || 1) * (1 + sc(15, stars) / 100)).toFixed(3)
     },
-    battleDesc: '狂暴衝鋒',
   },
 
-  // ══ EPIC ═══════════════════════════════════════════════════════════════
-  dark_harmony: {
-    id: 'dark_harmony', rarity: 'epic',
-    name: 'Dark Harmony', nameZh: '暗黑和諧',
-    icon: '🌑',
-    desc: '吸血提升至40%，並獲得+20%傷害',
+  sharp_eye: {
+    id: 'sharp_eye', group: 'universal',
+    name: 'Sharp Eye', nameZh: '銳利之眼',
+    icon: '👁️',
+    desc: (s = 1) => `暴擊率 +${scAdd(8, s, 1.5)}%`,
     trigger: 'passive',
-    apply(state) {
-      state.player.darkHarmony = true
-      state.player.dmgBonus = (state.player.dmgBonus || 1) * 1.20
+    apply(state, _ctx, stars = 1) {
+      state.player.crit = Math.min((state.player.crit || 0.1) + scAdd(8, stars, 1.5) / 100, 0.95)
     },
-    battleDesc: '暗黑和諧 傷害+20%+吸血',
   },
 
-  deadly_tango: {
-    id: 'deadly_tango', rarity: 'epic',
-    name: 'Deadly Tango', nameZh: '死亡探戈',
-    icon: '💃',
-    desc: '擊殺後下次攻擊傷害+50%，最多疊3層',
-    trigger: 'on_kill',
-    apply(state) {
-      state.player._tangoStacks = Math.min((state.player._tangoStacks || 0) + 1, 3)
-      return `死亡探戈 疊${state.player._tangoStacks}層`
-    },
-    battleDesc: '死亡探戈',
-  },
-
-  hawk_shot: {
-    id: 'hawk_shot', rarity: 'epic',
-    name: 'Hawk Shot', nameZh: '鷹眼狙擊',
-    icon: '🦅',
-    desc: '暴擊時額外對目標造成30%最大HP傷害',
-    trigger: 'on_crit',
-    apply(state, ctx) {
-      const bonus = Math.floor(ctx.target.maxHp * 0.30)
-      ctx.target.hp -= bonus
-      return `鷹眼狙擊 -${bonus}HP`
-    },
-    battleDesc: '鷹眼狙擊',
-  },
-
-  explosive_arrow: {
-    id: 'explosive_arrow', rarity: 'epic',
-    name: 'Explosive Arrow', nameZh: '爆炸箭',
-    icon: '💥',
-    desc: '攻擊時100%對所有敵人造成50%傷害',
-    trigger: 'on_attack',
-    apply(state, ctx) {
-      let total = 0
-      for (const e of state.enemies) {
-        if (e.hp > 0 && e !== ctx.target) {
-          const splash = Math.floor(ctx.damage * 0.5)
-          e.hp -= splash
-          total += splash
-        }
-      }
-      if (total > 0) return `爆炸箭 擴散${total}`
-    },
-    battleDesc: '爆炸箭',
-  },
-
-  thorn_blast: {
-    id: 'thorn_blast', rarity: 'epic',
-    name: 'Thorn Blast', nameZh: '荊棘爆發',
-    icon: '🌵',
-    desc: '被擊時反彈30%傷害給攻擊者',
-    trigger: 'on_hit',
-    apply(state, ctx) {
-      if (ctx.attacker && ctx.attacker.hp > 0) {
-        const thorn = Math.floor(ctx.damage * 0.30)
-        ctx.attacker.hp -= thorn
-        return `荊棘反彈 -${thorn}`
-      }
-    },
-    battleDesc: '荊棘爆發',
-  },
-
-  // ══ LEGENDARY ══════════════════════════════════════════════════════════
-  phoenix_rise: {
-    id: 'phoenix_rise', rarity: 'legendary',
-    name: 'Phoenix Rise', nameZh: '鳳凰涅槃',
-    icon: '🔥',
-    desc: '第一次死亡時以80%HP復活',
-    trigger: 'on_hit',
-    apply(state, ctx) {
-      if (!state.player._phoenixUsed && state.player.hp <= 0) {
-        state.player.hp = Math.floor(state.player.maxHp * 0.80)
-        state.player._phoenixUsed = true
-        return '鳳凰涅槃！復活80%HP！'
-      }
-    },
-    battleDesc: '鳳凰涅槃',
-  },
-
-  void_bloom: {
-    id: 'void_bloom', rarity: 'legendary',
-    name: 'Void Bloom', nameZh: '虛空綻放',
-    icon: '🌸',
-    desc: '戰鬥開始施咒：每回合對所有敵人造成5%最大HP傷害',
+  healing_mist: {
+    id: 'healing_mist', group: 'universal',
+    name: 'Healing Mist', nameZh: '治癒薄霧',
+    icon: '💧',
+    desc: (s = 1) => `每波開始恢復 ${sc(10, s)}% 最大HP`,
     trigger: 'battle_start',
-    apply(state) {
-      state.voidBloom = true
-      return '虛空綻放 施咒成功！'
+    apply(state, _ctx, stars = 1) {
+      const heal = Math.floor(state.player.maxHp * sc(10, stars) / 100)
+      state.player.hp = Math.min(state.player.hp + heal, state.player.maxHp)
+      return `治癒薄霧 +${heal}HP`
     },
-    battleDesc: '虛空綻放',
   },
 
-  ultimate_storm: {
-    id: 'ultimate_storm', rarity: 'legendary',
-    name: 'Ultimate Storm', nameZh: '終極風暴',
-    icon: '🌪️',
-    desc: '每隔5次攻擊，對所有敵人造成3倍傷害',
+  ball_up: {
+    id: 'ball_up', group: 'universal',
+    name: 'Ball Up', nameZh: '球數強化',
+    icon: '⚪',
+    desc: (s = 1) => `杯球台球數 +${sc(2, s, 0.5)}`,
+    trigger: 'passive',
+    apply(state, _ctx, stars = 1) {
+      state.player.bonusBalls = (state.player.bonusBalls || 0) + sc(2, stars, 0.5)
+    },
+  },
+
+  first_strike: {
+    id: 'first_strike', group: 'universal',
+    name: 'First Strike', nameZh: '先制一擊',
+    icon: '🗡️',
+    desc: (s = 1) => `戰鬥首次攻擊傷害 ×${(1.5 + (s - 1) * 0.25).toFixed(2)}`,
     trigger: 'on_attack',
-    apply(state, ctx) {
-      state.player._stormCount = (state.player._stormCount || 0) + 1
-      if (state.player._stormCount >= 5) {
-        state.player._stormCount = 0
-        let total = 0
-        for (const e of state.enemies) {
-          if (e.hp > 0) {
-            const dmg = ctx.damage * 3
-            e.hp -= dmg
-            total += dmg
-          }
-        }
-        return `終極風暴！${total}總傷害！`
+    apply(state, ctx, stars = 1) {
+      if (!state.player._firstStrikeDone) {
+        const mult = 1.5 + (stars - 1) * 0.25
+        const bonus = Math.floor(ctx.damage * (mult - 1))
+        ctx.target.hp -= bonus
+        state.player._firstStrikeDone = true
+        return `先制一擊 +${bonus}`
       }
     },
-    battleDesc: '終極風暴',
   },
 
-  rigged_formula: {
-    id: 'rigged_formula', rarity: 'legendary',
-    name: 'Rigged Formula', nameZh: '必勝公式',
-    icon: '🎲',
-    desc: '暴擊率+30%，暴擊傷害倍率×1.5',
-    trigger: 'passive',
-    apply(state) {
-      state.player.crit = Math.min((state.player.crit || 0.15) + 0.30, 0.95)
-      state.player.critMult = (state.player.critMult || 2) * 1.5
+  iron_skin: {
+    id: 'iron_skin', group: 'universal',
+    name: 'Iron Skin', nameZh: '鐵皮',
+    icon: '🧲',
+    desc: (s = 1) => `每次受傷固定減少 ${sc(5, s, 0.2)} 傷害`,
+    trigger: 'on_hit',
+    apply(state, ctx, stars = 1) {
+      if (ctx) ctx.damage = Math.max(1, (ctx.damage || 0) - sc(5, stars, 0.2))
     },
-    battleDesc: '必勝公式 暴擊+30%',
+  },
+
+  double_chance: {
+    id: 'double_chance', group: 'universal',
+    name: 'Double Chance', nameZh: '雙重機運',
+    icon: '🎲',
+    desc: (s = 1) => `${scAdd(12, s, 2)}% 機率攻擊傷害翻倍`,
+    trigger: 'on_attack',
+    apply(state, ctx, stars = 1) {
+      if (Math.random() < scAdd(12, stars, 2) / 100) {
+        const bonus = ctx.damage
+        ctx.target.hp -= bonus
+        return `雙重機運 ×2！+${bonus}`
+      }
+    },
   },
 }
 
-// 按稀有度分組
-export const CARDS_BY_RARITY = {
-  common:    Object.values(CARDS).filter(c => c.rarity === 'common'),
-  rare:      Object.values(CARDS).filter(c => c.rarity === 'rare'),
-  epic:      Object.values(CARDS).filter(c => c.rarity === 'epic'),
-  legendary: Object.values(CARDS).filter(c => c.rarity === 'legendary'),
+// ── 騎士英雄牌（5 張）─────────────────────────────────────────
+export const KNIGHT_CARDS = {
+
+  shield_bash: {
+    id: 'shield_bash', group: 'hero', heroId: 'knight',
+    name: 'Shield Bash', nameZh: '盾擊',
+    icon: '🛡️',
+    desc: (s = 1) => `攻擊時 ${scAdd(20, s, 3)}% 機率眩暈敵人（跳過下次攻擊）`,
+    trigger: 'on_attack',
+    apply(state, ctx, stars = 1) {
+      if (Math.random() < scAdd(20, stars, 3) / 100) {
+        ctx.target._stunned = true
+        return '盾擊！眩暈！'
+      }
+    },
+  },
+
+  parry: {
+    id: 'parry', group: 'hero', heroId: 'knight',
+    name: 'Parry', nameZh: '完美格擋',
+    icon: '🤺',
+    desc: (s = 1) => `被攻擊時 ${scAdd(18, s, 2.5)}% 機率完全格擋`,
+    trigger: 'on_hit',
+    apply(state, ctx, stars = 1) {
+      if (Math.random() < scAdd(18, stars, 2.5) / 100) {
+        ctx.damage = 0
+        return '完美格擋！'
+      }
+    },
+  },
+
+  sword_mastery: {
+    id: 'sword_mastery', group: 'hero', heroId: 'knight',
+    name: 'Sword Mastery', nameZh: '劍術精通',
+    icon: '⚔️',
+    desc: (s = 1) => `每次攻擊後 +${sc(1, s, 0.5)} ATK（上限 +${sc(20, s)}）`,
+    trigger: 'on_attack',
+    apply(state, ctx, stars = 1) {
+      const cap = sc(20, stars)
+      state.player._masteryGained = state.player._masteryGained || 0
+      if (state.player._masteryGained < cap) {
+        const gain = sc(1, stars, 0.5)
+        state.player.atk += gain
+        state.player._masteryGained += gain
+        return `劍術精通 ATK+${gain}`
+      }
+    },
+  },
+
+  holy_blade: {
+    id: 'holy_blade', group: 'hero', heroId: 'knight',
+    name: 'Holy Blade', nameZh: '聖光劍',
+    icon: '✨',
+    desc: (s = 1) => `暴擊時治癒造成傷害的 ${sc(25, s)}%`,
+    trigger: 'on_crit',
+    apply(state, ctx, stars = 1) {
+      const heal = Math.floor(ctx.damage * sc(25, stars) / 100)
+      state.player.hp = Math.min(state.player.hp + heal, state.player.maxHp)
+      return `聖光劍 +${heal}HP`
+    },
+  },
+
+  fortress: {
+    id: 'fortress', group: 'hero', heroId: 'knight',
+    name: 'Fortress', nameZh: '要塞姿態',
+    icon: '🏰',
+    desc: (s = 1) => `戰鬥開始時防禦 +${sc(20, s)}，暴擊率 +${sc(5, s)}%`,
+    trigger: 'battle_start',
+    apply(state, _ctx, stars = 1) {
+      state.player.def  += sc(20, stars)
+      state.player.crit  = Math.min((state.player.crit || 0.1) + sc(5, stars) / 100, 0.95)
+      return `要塞姿態 DEF+${sc(20, stars)}`
+    },
+  },
 }
 
-// 抽卡：根據波次決定稀有度機率
-// wave 1-3: 多 common，wave 4-6: 多 rare，wave 7+: 可能 epic/legendary
-export function drawCardOffers(count = 3, wave = 1) {
-  const pool = []
+// ── 刺客英雄牌（5 張）─────────────────────────────────────────
+export const ROGUE_CARDS = {
 
-  // 稀有度機率表
-  let legendaryChance = Math.min(wave * 0.02, 0.15)
-  let epicChance = Math.min(wave * 0.05, 0.30)
-  let rareChance = Math.min(0.20 + wave * 0.03, 0.45)
-  // common = 剩餘
+  shadowstep: {
+    id: 'shadowstep', group: 'hero', heroId: 'rogue',
+    name: 'Shadowstep', nameZh: '暗影步',
+    icon: '🌑',
+    desc: (s = 1) => `被攻擊時 ${scAdd(18, s, 3)}% 機率完全閃避`,
+    trigger: 'on_hit',
+    apply(state, ctx, stars = 1) {
+      if (Math.random() < scAdd(18, stars, 3) / 100) {
+        ctx.damage = 0
+        return '暗影步！閃避！'
+      }
+    },
+  },
 
-  const seen = new Set()
+  poison_blade: {
+    id: 'poison_blade', group: 'hero', heroId: 'rogue',
+    name: 'Poison Blade', nameZh: '毒刃',
+    icon: '🐍',
+    desc: (s = 1) => `攻擊時施毒，每回合 ${sc(4, s, 0.2)}% 目標HP 持續傷害`,
+    trigger: 'on_attack',
+    apply(state, ctx, stars = 1) {
+      ctx.target._poisonPct = Math.max(ctx.target._poisonPct || 0, sc(4, stars, 0.2) / 100)
+      return '毒刃！施毒！'
+    },
+  },
+
+  backstab: {
+    id: 'backstab', group: 'hero', heroId: 'rogue',
+    name: 'Backstab', nameZh: '背刺',
+    icon: '🗡️',
+    desc: (s = 1) => `戰鬥首次攻擊傷害 ×${(2 + (s - 1) * 0.3).toFixed(1)}`,
+    trigger: 'on_attack',
+    apply(state, ctx, stars = 1) {
+      if (!state.player._backstabDone) {
+        const mult  = 2 + (stars - 1) * 0.3
+        const bonus = Math.floor(ctx.damage * (mult - 1))
+        ctx.target.hp -= bonus
+        state.player._backstabDone = true
+        return `背刺！×${mult.toFixed(1)} +${bonus}`
+      }
+    },
+  },
+
+  smoke_bomb: {
+    id: 'smoke_bomb', group: 'hero', heroId: 'rogue',
+    name: 'Smoke Bomb', nameZh: '煙霧彈',
+    icon: '💨',
+    desc: (s = 1) => `首次被擊後下 ${sc(1, s, 0.5)} 次攻擊必定暴擊`,
+    trigger: 'on_hit',
+    apply(state, ctx, stars = 1) {
+      if (!state.player._smokeBombUsed) {
+        state.player._garanteedCrits = (state.player._garanteedCrits || 0) + sc(1, stars, 0.5)
+        state.player._smokeBombUsed  = true
+        return `煙霧彈！下 ${sc(1, stars, 0.5)} 次必暴！`
+      }
+    },
+  },
+
+  combo_strike: {
+    id: 'combo_strike', group: 'hero', heroId: 'rogue',
+    name: 'Combo Strike', nameZh: '連擊強化',
+    icon: '💥',
+    desc: (s = 1) => `對同一目標連擊，每次 +${scAdd(12, s, 2)}% 傷害`,
+    trigger: 'on_attack',
+    apply(state, ctx, stars = 1) {
+      const key = ctx.target?._id || 'e0'
+      if (state.player._comboTarget === key) {
+        state.player._comboCount = (state.player._comboCount || 0) + 1
+      } else {
+        state.player._comboTarget = key
+        state.player._comboCount  = 0
+      }
+      if (state.player._comboCount > 0) {
+        const bonus = Math.floor(ctx.damage * state.player._comboCount * scAdd(12, stars, 2) / 100)
+        ctx.target.hp -= bonus
+        return `連擊×${state.player._comboCount} +${bonus}`
+      }
+    },
+  },
+}
+
+// ── 蠻將英雄牌（5 張）─────────────────────────────────────────
+export const BARBARIAN_CARDS = {
+
+  rage_fuel: {
+    id: 'rage_fuel', group: 'hero', heroId: 'barbarian',
+    name: 'Rage Fuel', nameZh: '怒氣積累',
+    icon: '😡',
+    desc: (s = 1) => `被擊獲怒氣；每 10 點爆發，下次攻擊 +${sc(25, s)}% 傷害`,
+    trigger: 'on_hit',
+    apply(state, ctx, stars = 1) {
+      state.player._rage = (state.player._rage || 0) + 1
+      if (state.player._rage >= 10) {
+        state.player._rageDmgBonus = (state.player._rageDmgBonus || 0) + sc(25, stars) / 100
+        state.player._rage = 0
+        return `怒氣爆發！+${sc(25, stars)}% 傷害`
+      }
+    },
+  },
+
+  blood_thirst: {
+    id: 'blood_thirst', group: 'hero', heroId: 'barbarian',
+    name: 'Blood Thirst', nameZh: '嗜血',
+    icon: '🩸',
+    desc: (s = 1) => `HP 每低 10% 攻擊力 +${sc(4, s)}%（上限 +${sc(40, s)}%）`,
+    trigger: 'passive',
+    apply(state, _ctx, stars = 1) {
+      state.player._bloodThirst = { pct: sc(4, stars), cap: sc(40, stars) }
+    },
+  },
+
+  undying_rage: {
+    id: 'undying_rage', group: 'hero', heroId: 'barbarian',
+    name: 'Undying Rage', nameZh: '不死之怒',
+    icon: '💀',
+    desc: (s = 1) => `HP 低於 30% 時每回合自動回 ${sc(3, s, 0.5)}% HP`,
+    trigger: 'passive',
+    apply(state, _ctx, stars = 1) {
+      state.player._undyingRage = sc(3, stars, 0.5) / 100
+    },
+  },
+
+  war_stomp: {
+    id: 'war_stomp', group: 'hero', heroId: 'barbarian',
+    name: 'War Stomp', nameZh: '戰地踩踏',
+    icon: '💥',
+    desc: (s = 1) => `戰鬥開始對所有敵人造成 ${sc(30, s)}% ATK 的傷害`,
+    trigger: 'battle_start',
+    apply(state, _ctx, stars = 1) {
+      const dmg = Math.floor(state.player.atk * sc(30, stars) / 100)
+      let total = 0
+      for (const e of (state.enemies || [])) {
+        if (e.hp > 0) { e.hp -= dmg; total += dmg }
+      }
+      return `戰地踩踏！全敵 -${total}`
+    },
+  },
+
+  thick_skin: {
+    id: 'thick_skin', group: 'hero', heroId: 'barbarian',
+    name: 'Thick Skin', nameZh: '厚皮',
+    icon: '🦏',
+    desc: (s = 1) => `受傷減少 ${sc(8, s, 0.15)}%`,
+    trigger: 'passive',
+    apply(state, _ctx, stars = 1) {
+      state.player.dmgReduction = (state.player.dmgReduction || 0) + sc(8, stars, 0.15) / 100
+    },
+  },
+}
+
+// ── 德魯伊英雄牌（5 張）───────────────────────────────────────
+export const DRUID_CARDS = {
+
+  thorns_aura: {
+    id: 'thorns_aura', group: 'hero', heroId: 'druid',
+    name: 'Thorns Aura', nameZh: '荊棘光環',
+    icon: '🌵',
+    desc: (s = 1) => `被攻擊時反彈 ${sc(18, s)}% 傷害給全體敵人`,
+    trigger: 'on_hit',
+    apply(state, ctx, stars = 1) {
+      const thorn = Math.floor((ctx?.damage || 0) * sc(18, stars) / 100)
+      let total = 0
+      for (const e of (state.enemies || [])) {
+        if (e.hp > 0) { e.hp -= thorn; total += thorn }
+      }
+      if (total > 0) return `荊棘光環 -${total}`
+    },
+  },
+
+  natures_wrath: {
+    id: 'natures_wrath', group: 'hero', heroId: 'druid',
+    name: "Nature's Wrath", nameZh: '自然之怒',
+    icon: '⚡',
+    desc: (s = 1) => `每 ${Math.max(3, 5 - (s - 1))} 次攻擊召喚閃電，造成 ${sc(200, s)}% ATK 傷害`,
+    trigger: 'on_attack',
+    apply(state, ctx, stars = 1) {
+      const interval = Math.max(3, 5 - (stars - 1))
+      state.player._natWrathCount = (state.player._natWrathCount || 0) + 1
+      if (state.player._natWrathCount >= interval) {
+        state.player._natWrathCount = 0
+        const dmg    = Math.floor(state.player.atk * sc(200, stars) / 100)
+        const target = (state.enemies || []).filter(e => e.hp > 0).sort((a, b) => b.hp - a.hp)[0]
+        if (target) { target.hp -= dmg; return `自然之怒！閃電 -${dmg}` }
+      }
+    },
+  },
+
+  rejuvenation: {
+    id: 'rejuvenation', group: 'hero', heroId: 'druid',
+    name: 'Rejuvenation', nameZh: '新生',
+    icon: '🍃',
+    desc: (s = 1) => `每回合恢復 ${sc(2, s, 0.5)}% 最大HP`,
+    trigger: 'passive',
+    apply(state, _ctx, stars = 1) {
+      state.player._regenPct = (state.player._regenPct || 0) + sc(2, stars, 0.5) / 100
+    },
+  },
+
+  toxic_bloom: {
+    id: 'toxic_bloom', group: 'hero', heroId: 'druid',
+    name: 'Toxic Bloom', nameZh: '劇毒綻放',
+    icon: '🌸',
+    desc: (s = 1) => `攻擊時 ${scAdd(20, s, 3)}% 機率施強毒（每回合 ${sc(8, s)}% HP）`,
+    trigger: 'on_attack',
+    apply(state, ctx, stars = 1) {
+      if (Math.random() < scAdd(20, stars, 3) / 100) {
+        ctx.target._poisonPct = Math.max(ctx.target._poisonPct || 0, sc(8, stars) / 100)
+        return '劇毒綻放！施毒！'
+      }
+    },
+  },
+
+  overgrowth: {
+    id: 'overgrowth', group: 'hero', heroId: 'druid',
+    name: 'Overgrowth', nameZh: '過度生長',
+    icon: '🌿',
+    desc: (s = 1) => `戰鬥開始 HP +${sc(25, s)}；敵人攻速 -${sc(12, s)}%`,
+    trigger: 'battle_start',
+    apply(state, _ctx, stars = 1) {
+      const hpBonus   = sc(25, stars)
+      state.player.maxHp += hpBonus
+      state.player.hp    += hpBonus
+      const debuff = sc(12, stars) / 100
+      for (const e of (state.enemies || [])) {
+        e.spd = Math.max(0.3, (e.spd || 1) * (1 - debuff))
+      }
+      return `過度生長 HP+${hpBonus}，敵攻速-${sc(12, stars)}%`
+    },
+  },
+}
+
+// ── 輔助函式 ─────────────────────────────────────────────────
+
+// 取得指定英雄的英雄牌列表
+export function getHeroCards(heroId) {
+  const MAP = {
+    knight:    KNIGHT_CARDS,
+    rogue:     ROGUE_CARDS,
+    barbarian: BARBARIAN_CARDS,
+    druid:     DRUID_CARDS,
+  }
+  return Object.values(MAP[heroId] || {})
+}
+
+// 取所有牌的扁平列表
+export function getAllCards() {
+  return [
+    ...Object.values(UNIVERSAL_CARDS),
+    ...Object.values(KNIGHT_CARDS),
+    ...Object.values(ROGUE_CARDS),
+    ...Object.values(BARBARIAN_CARDS),
+    ...Object.values(DRUID_CARDS),
+  ]
+}
+
+// 依 ID 查卡
+export function getCardById(id) {
+  return getAllCards().find(c => c.id === id)
+}
+
+// 取得卡牌描述文字（相容 string / function）
+export function getCardDesc(card, stars = 1) {
+  return typeof card.desc === 'function' ? card.desc(stars) : (card.desc || '')
+}
+
+// ── 抽卡邏輯 ─────────────────────────────────────────────────
+// cardStars: { [cardId]: starCount }  — 從 gameState 傳入
+// 1. 排除已滿星（5星）的牌
+// 2. 保證每次至少 1 張英雄牌（如有可用）
+// 3. 其餘從通用 + 英雄混合池中隨機補足
+export function drawCardOffers(count = 3, wave = 1, heroId = 'knight', cardStars = {}) {
+  const univAvail = Object.values(UNIVERSAL_CARDS).filter(c => (cardStars[c.id] || 0) < MAX_STARS)
+  const heroAvail = getHeroCards(heroId).filter(c => (cardStars[c.id] || 0) < MAX_STARS)
+
+  const seen   = new Set()
   const result = []
 
-  for (let i = 0; i < count * 5 && result.length < count; i++) {
-    const roll = Math.random()
-    let rarity
-    if (roll < legendaryChance) rarity = 'legendary'
-    else if (roll < legendaryChance + epicChance) rarity = 'epic'
-    else if (roll < legendaryChance + epicChance + rareChance) rarity = 'rare'
-    else rarity = 'common'
-
-    const rarityPool = CARDS_BY_RARITY[rarity]
-    if (!rarityPool || rarityPool.length === 0) continue
-
-    const card = rarityPool[Math.floor(Math.random() * rarityPool.length)]
-    if (!seen.has(card.id)) {
-      seen.add(card.id)
-      result.push(card)
-    }
+  const pickFrom = (pool) => {
+    const avail = pool.filter(c => !seen.has(c.id))
+    if (!avail.length) return false
+    const card = avail[Math.floor(Math.random() * avail.length)]
+    seen.add(card.id)
+    result.push(card)
+    return true
   }
 
-  // 如果不夠，用 common 補
-  while (result.length < count) {
-    const card = CARDS_BY_RARITY.common[Math.floor(Math.random() * CARDS_BY_RARITY.common.length)]
-    if (!result.find(c => c.id === card.id)) result.push(card)
+  // 保證至少 1 張英雄牌
+  if (heroAvail.length > 0) pickFrom(heroAvail)
+
+  // 剩餘名額從通用 + 英雄混合補足（通用機率偏高）
+  const combined = _shuffle([...univAvail, ...univAvail, ...heroAvail])  // univ x2 weight
+  for (const card of combined) {
+    if (result.length >= count) break
+    if (!seen.has(card.id)) { seen.add(card.id); result.push(card) }
   }
 
-  return result
+  return _shuffle(result)
+}
+
+function _shuffle(arr) {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
 }

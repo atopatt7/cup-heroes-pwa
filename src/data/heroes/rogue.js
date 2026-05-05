@@ -10,7 +10,7 @@ export const rogue = {
   critMult: 2.5,
   color: '#7B1FA2',
   colorDark: '#4a148c',
-  startingCards: ['quick_shot', 'battle_frenzy'],
+  startingCards: ['backstab', 'shadowstep'],
   emoji: '🗡️',
   unlocked: false,
   unlockHint: '通關第一章解鎖',

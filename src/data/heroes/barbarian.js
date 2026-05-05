@@ -10,7 +10,7 @@ export const barbarian = {
   critMult: 2,
   color: '#E64A19',
   colorDark: '#bf360c',
-  startingCards: ['berserk_charge', 'iron_will'],
+  startingCards: ['thick_skin', 'undying_rage'],
   emoji: '🪓',
   unlocked: false,
   unlockHint: '通關第二章解鎖',

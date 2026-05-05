@@ -32,7 +32,9 @@ export class Game {
       {
         onStartBattle: (chapterIdx, waveIdx, heroId) => {
           const hero = getHero(heroId)
-          const gameState = { chapterIdx, waveIdx, hero, score: 0, gold: 0 }
+          const cardStars = {}
+          for (const id of (hero.startingCards || [])) cardStars[id] = 1
+          const gameState = { chapterIdx, waveIdx, hero, score: 0, gold: 0, cardStars }
           this.startBattle(gameState)
         },
         onHeroSelect: () => {
@@ -48,7 +50,9 @@ export class Game {
   showHeroSelect(onDone) {
     const callback = onDone || ((heroId) => {
       const hero = getHero(heroId)
-      const gameState = { chapterIdx: 0, waveIdx: 0, hero, score: 0, gold: 0 }
+      const cardStars = {}
+      for (const id of (hero.startingCards || [])) cardStars[id] = 1
+      const gameState = { chapterIdx: 0, waveIdx: 0, hero, score: 0, gold: 0, cardStars }
       this.startBattle(gameState)
     })
     this._switch(new HeroSelectScene(this.canvas, this.ctx, callback))
@@ -88,7 +92,7 @@ export class Game {
   }
 
   showVictory(gameState) {
-    SaveManager.updateBestWave(TOTAL_CHAPTERS * 4)
+    SaveManager.updateBestWave(TOTAL_CHAPTERS * 15)
     SaveManager.unlockHero('rogue')
     SaveManager.unlockHero('barbarian')
     SaveManager.unlockHero('druid')

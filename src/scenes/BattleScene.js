@@ -1,7 +1,7 @@
 // BattleScene.js — 自動戰鬥場景（卡牌效果 + 章節系統）
 import { createBattleState, playerAttack, enemyAttack, checkBattleEnd, getNextTarget } from '../game/AutoBattle.js'
 import { generateWaveEnemies, getWaveLabel, CHAPTERS } from '../data/chapters.js'
-import { CARDS, RARITY } from '../data/cards.js'
+import { getCardById } from '../data/cards.js'
 import { SpriteManager } from '../game/SpriteManager.js'
 import { T } from '../utils/theme.js'
 import { drawSky, drawGround, drawHpBar, drawBtn, rrect } from '../utils/drawHelpers.js'
@@ -41,7 +41,7 @@ export class BattleScene {
     rawEnemies.forEach(e => { e.y = enemyBaseY })
 
     // 建立戰鬥狀態
-    this.bs = createBattleState(gameState.hero, rawEnemies)
+    this.bs = createBattleState(gameState.hero, rawEnemies, gameState.cardStars || {})
 
     // 玩家位置
     this.playerX = 88
@@ -502,9 +502,9 @@ export class BattleScene {
     ctx.textAlign = 'center'
 
     for (const cardId of deck) {
-      const card = CARDS[cardId]
+      const card = getCardById(cardId)
       if (!card) { cx += cardW + gap; continue }
-      const rCol = RARITY[card.rarity]?.color || '#aaa'
+      const rCol = card.group === 'hero' ? '#d4a017' : '#4a90d9'
 
       // 卡片背景
       ctx.fillStyle = `${rCol}33`
@@ -563,5 +563,9 @@ function _lighten(hex, amt) {
 }
 
 function _darken(hex, amt) {
-  return _lighten(hex, -amt)
+  const n = parseInt(hex.replace('#', ''), 16)
+  const r = Math.max(0, ((n >> 16) & 0xff) - amt)
+  const g = Math.max(0, ((n >> 8)  & 0xff) - amt)
+  const b = Math.max(0, ((n)       & 0xff) - amt)
+  return `rgb(${r},${g},${b})`
 }

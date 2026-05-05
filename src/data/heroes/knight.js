@@ -10,7 +10,7 @@ export const knight = {
   critMult: 2,
   color: '#2196F3',
   colorDark: '#0d47a1',
-  startingCards: ['shield_wall', 'double_strike'],
+  startingCards: ['shield_bash', 'fortress'],
   emoji: '⚔️',
   unlocked: true,
 }

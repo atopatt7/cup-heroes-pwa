@@ -1,48 +1,43 @@
-// HomeScene.js — 主頁面（遊戲大廳）
-// 佈局：
-//  ┌──────────────────────────┐
-//  │ 等級 / 經驗  |  金幣/鑽石│  ← topBar
-//  ├──────────────────────────┤
-//  │                          │
-//  │  ←  [關卡卡片]  →        │  ← levelArea（中央大塊）
-//  │      [開始挑戰]           │
-//  │                          │
-//  ├──────────────────────────┤
-//  │  商店  裝備  英雄  升級   │  ← bottomTabs
-//  └──────────────────────────┘
+// HomeScene.js — 遊戲大廳（全新設計，對應 Figma UI）
+import { SaveManager }        from '../game/SaveManager.js'
+import { CHAPTERS }           from '../data/chapters.js'
+import { HEROES }             from '../data/heroes.js'
+import { T }                  from '../utils/theme.js'
+import { rrect }              from '../utils/drawHelpers.js'
 
-import { SaveManager }   from '../game/SaveManager.js'
-import { CHAPTERS, ENEMY_TYPES } from '../data/chapters.js'
-import { HEROES }        from '../data/heroes.js'
-import { T }             from '../utils/theme.js'
-import { rrect }         from '../utils/drawHelpers.js'
-
-// 關卡總數
-const TOTAL_LEVELS = CHAPTERS.reduce((s, c) => s + c.waves.length, 0)  // 12
-
-function levelToChapterWave(idx) {
-  let remaining = idx
-  for (let c = 0; c < CHAPTERS.length; c++) {
-    if (remaining < CHAPTERS[c].waves.length) return { chapterIdx: c, waveIdx: remaining }
-    remaining -= CHAPTERS[c].waves.length
-  }
-  return { chapterIdx: CHAPTERS.length - 1, waveIdx: CHAPTERS[CHAPTERS.length - 1].waves.length - 1 }
-}
+const TOTAL_LEVELS = CHAPTERS.reduce((s, c) => s + c.waves.length, 0)
 
 const TAB_CONFIG = [
   { id: 'shop',      label: '商店', icon: '🏪' },
-  { id: 'equipment', label: '裝備', icon: '⚔️' },
+  { id: 'equipment', label: '裝備', icon: '🛡️' },
+  { id: 'battle',    label: '戰鬥', icon: '⚔️',  active: true },
   { id: 'hero',      label: '英雄', icon: '🦸' },
   { id: 'upgrade',   label: '升級', icon: '⬆️' },
 ]
 
-// 章節主題色
-const CHAPTER_COLORS = ['#2e7d32', '#455a64', '#4a148c']
-const CHAPTER_BG     = ['#1b3a1b', '#1a2530', '#1a0a2e']
+const LEFT_ICONS = [
+  { icon: '🏆', label: '收集\nEM ALL', badge: true },
+  { icon: '🛡️', label: '祝福',      badge: true },
+  { icon: '🎡', label: '輪盤賭',     badge: true },
+]
+
+const CHAPTER_THEMES = [
+  { sky1: '#1a88d8', sky2: '#1060c0', ground1: '#5abf40', ground2: '#3a9020', dirt: '#a05820' },
+  { sky1: '#3d6080', sky2: '#283a50', ground1: '#6a7060', ground2: '#4a5040', dirt: '#706050' },
+  { sky1: '#3a1a7a', sky2: '#200a50', ground1: '#4a2090', ground2: '#300a60', dirt: '#503080' },
+]
+
+function levelToChapterWave(idx) {
+  let rem = idx
+  for (let c = 0; c < CHAPTERS.length; c++) {
+    if (rem < CHAPTERS[c].waves.length) return { chapterIdx: c, waveIdx: rem }
+    rem -= CHAPTERS[c].waves.length
+  }
+  return { chapterIdx: CHAPTERS.length - 1, waveIdx: CHAPTERS[CHAPTERS.length - 1].waves.length - 1 }
+}
 
 export class HomeScene {
   constructor(canvas, ctx, callbacks) {
-    // callbacks: { onStartBattle(chapterIdx, waveIdx, heroId), onHeroSelect, onShop, onEquipment, onUpgrade }
     this.canvas    = canvas
     this.ctx       = ctx
     this.callbacks = callbacks
@@ -52,31 +47,23 @@ export class HomeScene {
     this.lastTs  = 0
     this._loop   = this._loop.bind(this)
 
-    // 讀取存檔
-    this.save = SaveManager.load()
-    const unlockedIdx = this.save.unlockedLevelIdx ?? 0
-    this.viewLevel = Math.min(unlockedIdx, TOTAL_LEVELS - 1)  // 目前顯示的關卡索引
-
-    // 當前英雄
+    this.save           = SaveManager.load()
+    this.viewLevel      = Math.min(this.save.unlockedLevelIdx ?? 0, TOTAL_LEVELS - 1)
     this.selectedHeroId = this.save.selectedHeroId || 'knight'
+    this.activeTab      = 'battle'
+    this._btnAreas      = {}
 
-    // 底部 tab 狀態
-    this.activeTab = 'level'  // 'level' | 'shop' | 'equipment' | 'hero' | 'upgrade'
-
-    // 按鈕區域（繪製後設定）
-    this._btnAreas = {}
-
-    // 動畫用
-    this.cardSlide  = 0      // 0~1 卡片切換動畫
-    this.slideDir   = 0      // -1 or +1
+    this._clouds = [
+      { x: 0.10, y: 0.16, scale: 0.90, speed: 0.008 },
+      { x: 0.45, y: 0.12, scale: 1.10, speed: 0.006 },
+      { x: 0.75, y: 0.20, scale: 0.75, speed: 0.010 },
+    ]
   }
 
   start() {
-    this.save = SaveManager.load()
-    const unlockedIdx = this.save.unlockedLevelIdx ?? 0
-    this.viewLevel = Math.min(unlockedIdx, TOTAL_LEVELS - 1)
+    this.save           = SaveManager.load()
+    this.viewLevel      = Math.min(this.save.unlockedLevelIdx ?? 0, TOTAL_LEVELS - 1)
     this.selectedHeroId = this.save.selectedHeroId || 'knight'
-
     this._onPointerDown = this._onPointerDown.bind(this)
     this.canvas.addEventListener('pointerdown', this._onPointerDown)
     this.animId = requestAnimationFrame(this._loop)
@@ -89,13 +76,13 @@ export class HomeScene {
 
   _loop(ts) {
     const dt = Math.min((ts - this.lastTs) / 1000, 0.05)
-    this.t      += dt
-    this.lastTs  = ts
+    this.t     += dt
+    this.lastTs = ts
+    this._clouds.forEach(c => { c.x += c.speed * dt; if (c.x > 1.1) c.x = -0.15 })
     this._draw()
-    this.animId  = requestAnimationFrame(this._loop)
+    this.animId = requestAnimationFrame(this._loop)
   }
 
-  // ── 點擊處理 ─────────────────────────────────────────────
   _onPointerDown(e) {
     e.preventDefault()
     const rect   = this.canvas.getBoundingClientRect()
@@ -103,355 +90,480 @@ export class HomeScene {
     const scaleY = this.canvas.height / rect.height
     const tx = (e.clientX - rect.left) * scaleX
     const ty = (e.clientY - rect.top)  * scaleY
+    const A  = this._btnAreas
 
-    const areas = this._btnAreas
-
-    // 左箭頭
-    if (areas.arrowL && _inRect(tx, ty, areas.arrowL)) {
-      if (this.viewLevel > 0) { this.viewLevel--; this.slideDir = -1 }
+    if (A.arrowL && _hit(tx, ty, A.arrowL) && this.viewLevel > 0) { this.viewLevel--; return }
+    if (A.arrowR && _hit(tx, ty, A.arrowR)) {
+      const max = this.save.unlockedLevelIdx ?? 0
+      if (this.viewLevel < max) { this.viewLevel++; return }
     }
-    // 右箭頭
-    else if (areas.arrowR && _inRect(tx, ty, areas.arrowR)) {
-      const maxLevel = this.save.unlockedLevelIdx ?? 0
-      if (this.viewLevel < maxLevel) { this.viewLevel++; this.slideDir = 1 }
-    }
-    // 開始挑戰
-    else if (areas.startBtn && _inRect(tx, ty, areas.startBtn)) {
+    if (A.battleBtn && _hit(tx, ty, A.battleBtn)) {
       const { chapterIdx, waveIdx } = levelToChapterWave(this.viewLevel)
       this.stop()
       this.callbacks.onStartBattle(chapterIdx, waveIdx, this.selectedHeroId)
+      return
     }
-    // 底部 Tab
-    else {
-      for (const tab of TAB_CONFIG) {
-        if (areas[`tab_${tab.id}`] && _inRect(tx, ty, areas[`tab_${tab.id}`])) {
-          if (tab.id === 'hero') {
-            this.stop()
-            this.callbacks.onHeroSelect?.()
-          } else {
-            this.activeTab = tab.id
-          }
-          break
-        }
+    for (const tab of TAB_CONFIG) {
+      if (A[`tab_${tab.id}`] && _hit(tx, ty, A[`tab_${tab.id}`])) {
+        if (tab.id === 'hero')      { this.stop(); this.callbacks.onHeroSelect?.() }
+        else if (tab.id === 'shop') { this.callbacks.onShop?.() }
+        else this.activeTab = tab.id
+        return
       }
     }
   }
 
-  // ── 繪圖 ─────────────────────────────────────────────────
   _draw() {
     const ctx = this.ctx
     const W   = this.canvas.width
     const H   = this.canvas.height
-
-    // ── 全屏背景 ─────────────────────────────────────────
     const { chapterIdx } = levelToChapterWave(this.viewLevel)
-    const bgC = CHAPTER_BG[chapterIdx] || '#0d1020'
-    ctx.fillStyle = bgC
+    const theme = CHAPTER_THEMES[chapterIdx] || CHAPTER_THEMES[0]
+
+    const bg = ctx.createLinearGradient(0, 0, 0, H)
+    bg.addColorStop(0, theme.sky1)
+    bg.addColorStop(1, theme.sky2)
+    ctx.fillStyle = bg
     ctx.fillRect(0, 0, W, H)
 
-    // ── 頂部狀態列 ───────────────────────────────────────
-    this._drawTopBar(ctx, W)
-
-    // ── 中央關卡選擇區 ──────────────────────────────────
-    const topBarH = 100
-    const botTabH = 88
-    const levelAreaY = topBarH
-    const levelAreaH = H - topBarH - botTabH
-    this._drawLevelArea(ctx, W, levelAreaY, levelAreaH)
-
-    // ── 底部 Tab ─────────────────────────────────────────
-    this._drawBottomTabs(ctx, W, H, botTabH)
-  }
-
-  _drawTopBar(ctx, W) {
-    // 背景
-    ctx.fillStyle = 'rgba(0,0,0,0.55)'
-    ctx.fillRect(0, 0, W, 100)
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)'
-    ctx.lineWidth = 1
-    ctx.beginPath(); ctx.moveTo(0, 100); ctx.lineTo(W, 100); ctx.stroke()
-
-    const save = this.save
-    const playerLevel = save.playerLevel || 1
-    const playerExp   = save.playerExp   || 0
-    const expNeeded   = playerLevel * 100
-    const gold        = save.gold     || 0
-    const diamonds    = save.diamonds || 0
-
-    // 頭像框
-    const avatarX = 20, avatarY = 12, avatarSize = 52
-    ctx.fillStyle = '#1a3060'
-    rrect(ctx, avatarX, avatarY, avatarSize, avatarSize, 10); ctx.fill()
-    ctx.strokeStyle = '#4488cc'; ctx.lineWidth = 2
-    rrect(ctx, avatarX, avatarY, avatarSize, avatarSize, 10); ctx.stroke()
-    const hero = HEROES[this.selectedHeroId] || HEROES.knight
-    ctx.font = '28px serif'; ctx.textAlign = 'center'
-    ctx.fillText(hero.emoji || '⚔️', avatarX + avatarSize / 2, avatarY + avatarSize * 0.72)
-
-    // 等級 / 經驗
-    ctx.textAlign  = 'left'
-    ctx.fillStyle  = '#fff'
-    ctx.font       = 'bold 15px sans-serif'
-    ctx.fillText(`等級：${playerLevel}`, avatarX + avatarSize + 10, avatarY + 20)
-
-    // 經驗條
-    const expBarX = avatarX + avatarSize + 10
-    const expBarY = avatarY + 26
-    const expBarW = 100
-    const expPct  = Math.min(1, playerExp / expNeeded)
-    ctx.fillStyle = '#1a3060'
-    rrect(ctx, expBarX, expBarY, expBarW, 12, 6); ctx.fill()
-    if (expPct > 0) {
-      ctx.fillStyle = '#4fc3f7'
-      rrect(ctx, expBarX, expBarY, Math.max(10, expBarW * expPct), 12, 6); ctx.fill()
-    }
-    ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = '9px sans-serif'
-    ctx.textAlign = 'center'
-    ctx.fillText(`${playerExp}/${expNeeded}`, expBarX + expBarW / 2, expBarY + 9)
-
-    // 右側：金幣 / 鑽石
-    const rightX = W - 16
-    ctx.textAlign = 'right'
-    // 金幣
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 13px sans-serif'
-    ctx.fillText(`🪙  ${_fmt(gold)}`, rightX, avatarY + 22)
-    // 鑽石
-    ctx.fillStyle = '#a5d6ff'
-    ctx.fillText(`💎  ${_fmt(diamonds)}`, rightX, avatarY + 46)
-
-    // 英雄名字
-    ctx.textAlign = 'left'
-    ctx.fillStyle = hero.color || '#4fc3f7'
-    ctx.font      = '11px sans-serif'
-    ctx.fillText(hero.nameZh || hero.name, avatarX + avatarSize + 10, avatarY + 52)
-
-    // 牌組卡數
-    const deck = this.save.heroDeck?.[this.selectedHeroId] || []
-    ctx.fillStyle = 'rgba(255,255,255,0.45)'
-    ctx.font      = '10px sans-serif'
-    ctx.fillText(`牌組：${deck.length} 張`, avatarX + avatarSize + 10, avatarY + 66)
-  }
-
-  _drawLevelArea(ctx, W, areaY, areaH) {
-    const { chapterIdx, waveIdx } = levelToChapterWave(this.viewLevel)
-    const chapter   = CHAPTERS[chapterIdx]
-    const waveData  = chapter.waves[waveIdx]
-    const themeCol  = CHAPTER_COLORS[chapterIdx] || '#2e7d32'
-    const unlockedIdx = this.save.unlockedLevelIdx ?? 0
-    const isCleared = this.viewLevel < unlockedIdx
-    const isLatest  = this.viewLevel === unlockedIdx
-    const isFuture  = this.viewLevel > unlockedIdx
-
-    // ── 箭頭區 ───────────────────────────────────────────
-    const arrowW = 44, arrowH = 80
-    const arrowY = areaY + areaH / 2 - arrowH / 2
-    const cardX  = 54, cardW = W - 108
-    const cardY  = areaY + 20, cardH = areaH - 50
-
-    // 左箭頭
-    const canLeft  = this.viewLevel > 0
-    ctx.globalAlpha = canLeft ? 1 : 0.25
-    this._drawArrow(ctx, 10, arrowY, arrowW, arrowH, 'left')
-    this._btnAreas.arrowL = { x: 6, y: arrowY, w: arrowW + 4, h: arrowH }
-
-    // 右箭頭
-    const canRight = this.viewLevel < (unlockedIdx)
-    ctx.globalAlpha = canRight ? 1 : 0.25
-    this._drawArrow(ctx, W - 10 - arrowW, arrowY, arrowW, arrowH, 'right')
-    this._btnAreas.arrowR = { x: W - 10 - arrowW - 4, y: arrowY, w: arrowW + 4, h: arrowH }
-    ctx.globalAlpha = 1
-
-    // ── 關卡卡片 ─────────────────────────────────────────
-    // 卡片陰影
-    ctx.fillStyle = 'rgba(0,0,0,0.4)'
-    rrect(ctx, cardX + 5, cardY + 6, cardW, cardH, 20); ctx.fill()
-
-    // 卡片背景
-    const cardGrad = ctx.createLinearGradient(cardX, cardY, cardX, cardY + cardH)
-    cardGrad.addColorStop(0, _lighten(themeCol, -20))
-    cardGrad.addColorStop(1, _lighten(themeCol, -50))
-    ctx.fillStyle = cardGrad
-    rrect(ctx, cardX, cardY, cardW, cardH, 20); ctx.fill()
-
-    // 卡片邊框
-    ctx.strokeStyle = themeCol + 'aa'; ctx.lineWidth = 2
-    rrect(ctx, cardX, cardY, cardW, cardH, 20); ctx.stroke()
-
-    // ── 卡片頂部章節橫幅 ─────────────────────────────────
-    const bannerH = 48
-    ctx.fillStyle = themeCol
-    rrect(ctx, cardX, cardY, cardW, bannerH, 20); ctx.fill()
-    ctx.fillStyle = 'rgba(255,255,255,0.08)'
-    ctx.fillRect(cardX, cardY + bannerH - 8, cardW, 8)
-
-    ctx.textAlign = 'center'
-    ctx.fillStyle = '#fff'
-    ctx.font      = 'bold 17px sans-serif'
-    ctx.shadowColor = '#000'; ctx.shadowBlur = 6
-    ctx.fillText(`第 ${chapterIdx + 1} 章  ·  ${chapter.nameZh}`, cardX + cardW / 2, cardY + 20)
-    ctx.shadowBlur = 0
-    ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = '13px sans-serif'
-    ctx.fillText(`波次 ${waveIdx + 1}${waveData.isBoss ? '  👑 BOSS 關' : ''}`, cardX + cardW / 2, cardY + 38)
-
-    // ── 星星評分 ─────────────────────────────────────────
-    const starY = cardY + bannerH + 22
-    const stars = isCleared ? 3 : isLatest ? 0 : 0
-    for (let s = 0; s < 3; s++) {
-      ctx.fillStyle = s < stars ? '#ffd700' : 'rgba(255,255,255,0.2)'
-      ctx.font = '22px serif'
-      ctx.fillText('★', cardX + cardW / 2 - 26 + s * 26, starY)
-    }
-
-    // ── 敵人預覽 ─────────────────────────────────────────
-    const enemyY = starY + 16
-    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '11px sans-serif'
-    ctx.fillText('本波敵人', cardX + cardW / 2, enemyY)
-
-    let enemyDrawX = cardX + cardW / 2 - (waveData.enemies.length - 1) * 38
-    for (const spec of waveData.enemies) {
-      const et = ENEMY_TYPES[spec.type]
-      if (!et) continue
-      ctx.font = '28px serif'
-      ctx.fillText(et.emoji || '👾', enemyDrawX, enemyY + 44)
-      ctx.font = '10px sans-serif'
-      ctx.fillStyle = 'rgba(255,255,255,0.6)'
-      ctx.fillText(`×${spec.count}`, enemyDrawX, enemyY + 60)
-      enemyDrawX += 76
-    }
-
-    // ── 關卡狀態 ─────────────────────────────────────────
-    const statusY = enemyY + 76
-    if (isCleared) {
-      ctx.fillStyle = '#a5f7a5'; ctx.font = 'bold 14px sans-serif'
-      ctx.fillText('✓ 已通關', cardX + cardW / 2, statusY)
-    } else if (isLatest) {
-      ctx.fillStyle = '#ffd700'; ctx.font = 'bold 14px sans-serif'
-      ctx.fillText('► 最新關卡', cardX + cardW / 2, statusY)
-    }
-
-    // ── 開始挑戰按鈕 ────────────────────────────────────
-    const btnW = cardW * 0.68, btnH = 52
-    const btnX = cardX + (cardW - btnW) / 2
-    const btnY = cardY + cardH - btnH - 18
-
-    const pulse = 0.97 + Math.sin(this.t * 3.0) * 0.03
     ctx.save()
-    ctx.translate(btnX + btnW / 2, btnY + btnH / 2)
-    ctx.scale(pulse, pulse)
-
-    const btnGrad = ctx.createLinearGradient(-btnW/2, -btnH/2, -btnW/2, btnH/2)
-    btnGrad.addColorStop(0, '#e53935')
-    btnGrad.addColorStop(1, '#b71c1c')
-    ctx.fillStyle = btnGrad
-    rrect(ctx, -btnW/2, -btnH/2, btnW, btnH, 14); ctx.fill()
-    ctx.fillStyle = 'rgba(255,255,255,0.2)'
-    rrect(ctx, -btnW/2 + 3, -btnH/2 + 3, btnW - 6, btnH/2 - 3, 10); ctx.fill()
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1.5
-    rrect(ctx, -btnW/2, -btnH/2, btnW, btnH, 14); ctx.stroke()
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 18px sans-serif'
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-    ctx.fillText('⚔️  開始挑戰', 0, 1)
-    ctx.textBaseline = 'alphabetic'
+    ctx.globalAlpha = 0.07
+    ctx.font = `${W * 0.22}px serif`
+    ctx.textAlign = 'center'
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < 3; col++) {
+        ctx.fillStyle = '#fff'
+        ctx.fillText('🛡️', W * (0.15 + col * 0.38), H * (0.18 + row * 0.26))
+      }
+    }
     ctx.restore()
 
-    this._btnAreas.startBtn = { x: btnX, y: btnY, w: btnW, h: btnH }
+    this._drawClouds(ctx, W, H)
 
-    // ── 關卡索引指示點 ───────────────────────────────────
-    const dotY = cardY + cardH + 12
-    const maxShow = Math.min(TOTAL_LEVELS, 12)
-    const dotX0 = W / 2 - (maxShow - 1) * 7
-    for (let d = 0; d < maxShow; d++) {
-      ctx.fillStyle = d === this.viewLevel ? '#ffd700' : 'rgba(255,255,255,0.25)'
-      ctx.beginPath(); ctx.arc(dotX0 + d * 14, dotY, d === this.viewLevel ? 5 : 3, 0, Math.PI * 2); ctx.fill()
+    const TOP_H    = Math.round(H * 0.10)
+    const BOT_NAV  = Math.round(H * 0.105)
+    const BOT_ACT  = Math.round(H * 0.115)
+    const LEFT_W   = Math.round(W * 0.138)
+    const RIGHT_W  = Math.round(W * 0.168)
+    const CENTER_W = W - LEFT_W - RIGHT_W
+
+    this._drawTopBar(ctx, W, TOP_H)
+    this._drawLeftSidebar(ctx, LEFT_W, TOP_H, H - TOP_H - BOT_ACT - BOT_NAV)
+    this._drawRightSidebar(ctx, W - RIGHT_W, RIGHT_W, TOP_H, H - TOP_H - BOT_ACT - BOT_NAV)
+    this._drawCenterContent(ctx, LEFT_W, CENTER_W, TOP_H, H - TOP_H - BOT_ACT - BOT_NAV, theme)
+    this._drawBottomAction(ctx, W, H - BOT_ACT - BOT_NAV, BOT_ACT)
+    this._drawBottomNav(ctx, W, H - BOT_NAV, BOT_NAV)
+  }
+
+  _drawClouds(ctx, W, H) {
+    ctx.save()
+    ctx.globalAlpha = 0.55
+    this._clouds.forEach(c => {
+      const cx = c.x * W, cy = c.y * H, r = W * 0.06 * c.scale
+      ctx.fillStyle = '#fff'
+      for (const [ox, oy, sr] of [[-r*0.6,r*0.3,r*0.7],[0,0,r],[r*0.65,r*0.2,r*0.75],[r*1.2,r*0.35,r*0.6]]) {
+        ctx.beginPath(); ctx.arc(cx+ox, cy+oy, sr, 0, Math.PI*2); ctx.fill()
+      }
+    })
+    ctx.restore()
+  }
+
+  _drawTopBar(ctx, W, H) {
+    ctx.fillStyle = 'rgba(0,20,60,0.72)'
+    ctx.fillRect(0, 0, W, H)
+
+    const save = this.save
+    const level = save.playerLevel || 1
+    const exp   = save.playerExp   || 0
+    const gold  = save.gold        || 0
+    const gems  = save.diamonds    || 0
+    const expMax = level * 100
+    const hero  = HEROES[this.selectedHeroId] || HEROES.knight
+
+    const pad  = W * 0.035
+    const midY = H * 0.5
+    const avR  = H * 0.38
+    const avCX = pad + avR
+
+    ctx.save()
+    ctx.beginPath(); ctx.arc(avCX, midY, avR, 0, Math.PI * 2)
+    ctx.fillStyle = '#1a4080'; ctx.fill()
+    ctx.strokeStyle = '#4aa8ff'; ctx.lineWidth = 2; ctx.stroke()
+    ctx.font = `${avR * 1.2}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText(hero.emoji || '⚔️', avCX, midY + avR * 0.05)
+    ctx.restore()
+
+    const scoreX = avCX + avR + pad * 0.8
+    ctx.fillStyle = '#fff'; ctx.font = `bold ${H * 0.28}px sans-serif`
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
+    ctx.fillText(_fmt(save.score || 0), scoreX, midY - H * 0.04)
+
+    const barW = W * 0.175, barH = H * 0.14, barY = midY + H * 0.06
+    const xpPct = Math.min(1, exp / expMax)
+    ctx.fillStyle = '#0a2050'
+    rrect(ctx, scoreX, barY, barW, barH, barH/2); ctx.fill()
+    if (xpPct > 0) {
+      ctx.fillStyle = '#22dd66'
+      rrect(ctx, scoreX, barY, Math.max(barH, barW * xpPct), barH, barH/2); ctx.fill()
     }
+    ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = `${barH * 0.8}px sans-serif`
+    ctx.textAlign = 'left'
+    ctx.fillText(`  ${level}`, scoreX, barY + barH - 1)
+
+    const cx = W * 0.52
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'
+    ctx.fillStyle = '#a8e8ff'; ctx.font = `bold ${H * 0.27}px sans-serif`
+    ctx.fillText(`💎 ${_fmt(gems)}`, cx - W * 0.02, midY - H * 0.02)
+    ctx.fillStyle = '#ffe066'
+    ctx.fillText(`🪙 ${_fmt(gold)}`, cx - W * 0.02, midY + H * 0.30)
+
+    const btnW = H * 0.65, btnH2 = H * 0.65
+    const btnX = W - pad - btnW, btnY = midY - btnH2 / 2
+    ctx.fillStyle = T.gold
+    rrect(ctx, btnX, btnY, btnW, btnH2, 6); ctx.fill()
+    ctx.fillStyle = '#333'; ctx.font = `bold ${btnH2 * 0.55}px sans-serif`
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText('☰', btnX + btnW / 2, btnY + btnH2 / 2 + 1)
+    ctx.textBaseline = 'alphabetic'
   }
 
-  _drawArrow(ctx, x, y, w, h, dir) {
+  _drawLeftSidebar(ctx, W, y0, H) {
+    const slotH = H / LEFT_ICONS.length
+    LEFT_ICONS.forEach((item, i) => {
+      const cy = y0 + slotH * i + slotH * 0.5
+      const cx = W * 0.5
+      const bW = W * 0.75, bH = slotH * 0.72
+      ctx.fillStyle = 'rgba(0,0,0,0.35)'
+      rrect(ctx, cx - bW/2, cy - bH/2, bW, bH, 8); ctx.fill()
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1
+      rrect(ctx, cx - bW/2, cy - bH/2, bW, bH, 8); ctx.stroke()
+
+      ctx.font = `${bH * 0.5}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      ctx.fillText(item.icon, cx, cy - bH * 0.08)
+
+      ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.font = `${bH * 0.16}px sans-serif`
+      ctx.textBaseline = 'alphabetic'
+      const parts = item.label.split('\n')
+      ctx.fillText(parts[0], cx, cy + bH * 0.28)
+      if (parts[1]) ctx.fillText(parts[1], cx, cy + bH * 0.44)
+
+      if (item.badge) {
+        const bx = cx + bW/2 - 4, by = cy - bH/2 - 2
+        ctx.fillStyle = '#e82020'
+        rrect(ctx, bx - 8, by, 16, 14, 7); ctx.fill()
+        ctx.fillStyle = '#fff'; ctx.font = `bold ${14 * 0.65}px sans-serif`
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        ctx.fillText('!', bx, by + 7)
+      }
+    })
+  }
+
+  _drawRightSidebar(ctx, x0, W, y0, H) {
+    const events = [
+      { label: '7天活動', timer: '9d 17h', emoji: '🌟', bg: '#c8a000' },
+      { label: '英雄活動', timer: '2d 9h',  emoji: '🦸', bg: '#1a8030' },
+    ]
+    const slotH = H / events.length
+    events.forEach((ev, i) => {
+      const sy = y0 + slotH * i + slotH * 0.12
+      const sh = slotH * 0.76
+      const sx = x0 + W * 0.06
+      ctx.fillStyle = ev.bg + 'cc'
+      rrect(ctx, sx, sy, W * 0.88, sh, 8); ctx.fill()
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1
+      rrect(ctx, sx, sy, W * 0.88, sh, 8); ctx.stroke()
+      const cx = sx + W * 0.44
+      ctx.font = `${sh * 0.36}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      ctx.fillText(ev.emoji, cx, sy + sh * 0.32)
+      ctx.fillStyle = '#fff'; ctx.font = `bold ${sh * 0.175}px sans-serif`
+      ctx.textBaseline = 'alphabetic'
+      ctx.fillText(ev.label, cx, sy + sh * 0.66)
+      ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = `${sh * 0.15}px sans-serif`
+      ctx.fillText(ev.timer, cx, sy + sh * 0.86)
+      ctx.fillStyle = '#e82020'
+      rrect(ctx, sx + W * 0.88 - 8, sy - 4, 16, 14, 7); ctx.fill()
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 9px sans-serif'
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      ctx.fillText('!', sx + W * 0.88, sy + 3)
+    })
+  }
+
+  _drawCenterContent(ctx, x0, W, y0, H, theme) {
+    const { chapterIdx, waveIdx } = levelToChapterWave(this.viewLevel)
+    const chapter  = CHAPTERS[chapterIdx]
+    const waveData = chapter.waves[waveIdx]
+    const cx       = x0 + W / 2
+
+    const titleY = y0 + H * 0.1
+    ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.font = `bold ${W * 0.1}px sans-serif`
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'
+    ctx.fillText(`章節 ${chapterIdx + 1}`, cx, titleY)
+
+    const nameY = titleY + H * 0.1
+    ctx.fillStyle = '#fff'; ctx.font = `bold ${W * 0.14}px sans-serif`
+    ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 8
+    ctx.fillText(chapter.nameZh, cx, nameY)
+    ctx.shadowBlur = 0
+
+    const diff  = waveData.isBoss ? 'BOSS 關' : `波次 ${waveIdx + 1}`
+    const difBg = waveData.isBoss ? '#8800cc' : '#1a6aaa'
+    const dbY   = nameY + H * 0.04
+    const dbW   = W * 0.42, dbH = H * 0.058
+    ctx.fillStyle = difBg
+    rrect(ctx, cx - dbW/2, dbY, dbW, dbH, dbH/2); ctx.fill()
+    ctx.fillStyle = '#fff'; ctx.font = `bold ${dbH * 0.58}px sans-serif`
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText(diff, cx, dbY + dbH/2)
+    ctx.textBaseline = 'alphabetic'
+
+    const islandCY = y0 + H * 0.56
+    const islandW  = W * 0.78
+    const islandH  = H * 0.14
+    const islandX  = cx - islandW / 2
+
+    ctx.fillStyle = 'rgba(0,0,0,0.22)'
+    rrect(ctx, islandX + islandW*0.1, islandCY + islandH*0.55, islandW*0.8, islandH*0.5, islandH*0.25)
+    ctx.fill()
+
+    const stoneGrad = ctx.createLinearGradient(cx, islandCY, cx, islandCY + islandH)
+    stoneGrad.addColorStop(0, theme.dirt)
+    stoneGrad.addColorStop(1, '#3a2010')
+    ctx.fillStyle = stoneGrad
+    ctx.beginPath()
+    ctx.moveTo(islandX + islandW*0.08, islandCY + islandH*0.3)
+    ctx.lineTo(islandX + islandW*0.92, islandCY + islandH*0.3)
+    ctx.lineTo(islandX + islandW*0.62, islandCY + islandH)
+    ctx.lineTo(islandX + islandW*0.38, islandCY + islandH)
+    ctx.closePath(); ctx.fill()
+
+    const groundGrad = ctx.createLinearGradient(cx, islandCY - islandH*0.35, cx, islandCY + islandH*0.35)
+    groundGrad.addColorStop(0, theme.ground1)
+    groundGrad.addColorStop(1, theme.ground2)
+    ctx.fillStyle = groundGrad
+    rrect(ctx, islandX, islandCY - islandH*0.35, islandW, islandH*0.65, islandH*0.15)
+    ctx.fill()
     ctx.fillStyle = 'rgba(255,255,255,0.12)'
-    rrect(ctx, x, y, w, h, 10); ctx.fill()
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1.5
-    rrect(ctx, x, y, w, h, 10); ctx.stroke()
+    rrect(ctx, islandX, islandCY - islandH*0.35, islandW, islandH*0.12, islandH*0.15)
+    ctx.fill()
+
+    const treeY   = islandCY - islandH * 0.5
+    const treeSize = H * 0.075
+    ctx.font = `${treeSize}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'
+    ;[-0.28, -0.08, 0.12, 0.30].forEach(off => ctx.fillText('🌲', cx + islandW*off, treeY))
+
+    const hero     = HEROES[this.selectedHeroId] || HEROES.knight
+    const heroSize = H * 0.085
+    const heroBob  = Math.sin(this.t * 2.2) * H * 0.008
+    ctx.font = `${heroSize}px serif`
+    ctx.fillText(hero.emoji || '⚔️', cx, islandCY - islandH*0.2 + heroBob)
+
+    const arrY = islandCY - islandH * 0.1
+    const arrH = H * 0.07, arrW = W * 0.08
+    const canL = this.viewLevel > 0
+    const canR = this.viewLevel < (this.save.unlockedLevelIdx ?? 0)
+
+    ctx.globalAlpha = canL ? 0.9 : 0.25
+    ctx.fillStyle = 'rgba(255,255,255,0.15)'
+    rrect(ctx, islandX - arrW - W*0.02, arrY, arrW, arrH, arrH/2); ctx.fill()
+    ctx.fillStyle = '#fff'; ctx.font = `${arrH * 0.7}px sans-serif`
+    ctx.textBaseline = 'middle'
+    ctx.fillText('‹', islandX - arrW/2 - W*0.02, arrY + arrH/2)
+    this._btnAreas.arrowL = { x: islandX - arrW - W*0.02, y: arrY, w: arrW, h: arrH }
+
+    ctx.globalAlpha = canR ? 0.9 : 0.25
+    ctx.fillStyle = 'rgba(255,255,255,0.15)'
+    rrect(ctx, islandX + islandW + W*0.02, arrY, arrW, arrH, arrH/2); ctx.fill()
     ctx.fillStyle = '#fff'
-    ctx.font = '22px sans-serif'; ctx.textAlign = 'center'
-    ctx.fillText(dir === 'left' ? '‹' : '›', x + w / 2, y + h / 2 + 8)
+    ctx.fillText('›', islandX + islandW + arrW/2 + W*0.02, arrY + arrH/2)
+    this._btnAreas.arrowR = { x: islandX + islandW + W*0.02, y: arrY, w: arrW, h: arrH }
+    ctx.globalAlpha = 1; ctx.textBaseline = 'alphabetic'
+
+    this._drawChestStrip(ctx, x0, W, y0, H, chapterIdx, waveIdx)
   }
 
-  _drawBottomTabs(ctx, W, H, tabH) {
-    const tabY = H - tabH
-    const tabW = W / TAB_CONFIG.length
+  _drawChestStrip(ctx, x0, W, y0, H, chapterIdx, waveIdx) {
+    const stripY = y0 + H * 0.76
+    const stripH = H * 0.20
+    const cx     = x0 + W / 2
+    const chapter    = CHAPTERS[chapterIdx]
+    const totalWaves = chapter.waves.length
+    const baseUnlocked = CHAPTERS.slice(0, chapterIdx).reduce((s, c) => s + c.waves.length, 0)
+    const unlockedWave = (chapterIdx === levelToChapterWave(this.viewLevel).chapterIdx)
+      ? (this.save.unlockedLevelIdx ?? 0) - baseUnlocked
+      : totalWaves
 
-    // Tab 背景
-    ctx.fillStyle = 'rgba(0,0,0,0.72)'
-    ctx.fillRect(0, tabY, W, tabH)
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1
-    ctx.beginPath(); ctx.moveTo(0, tabY); ctx.lineTo(W, tabY); ctx.stroke()
+    const milestones = [
+      { wave: Math.floor(totalWaves * 0.4) - 1, label: '波次 ' + Math.floor(totalWaves * 0.4) },
+      { wave: Math.floor(totalWaves * 0.7) - 1, label: '波次 ' + Math.floor(totalWaves * 0.7) },
+      { wave: totalWaves - 1,                    label: 'BOSS' },
+    ]
+    const slotW  = W / 3.5
+    const startX = cx - slotW
 
-    TAB_CONFIG.forEach((tab, i) => {
-      const tx = i * tabW
-      const isActive = this.activeTab === tab.id
+    milestones.forEach((ms, i) => {
+      const sx      = startX + i * slotW
+      const cleared = unlockedWave > ms.wave
+      const current = !cleared && unlockedWave === ms.wave
 
-      // 活躍高光
-      if (isActive) {
-        ctx.fillStyle = 'rgba(255,255,255,0.08)'
-        ctx.fillRect(tx, tabY, tabW, tabH)
-        ctx.fillStyle = '#4fc3f7'
-        ctx.fillRect(tx + tabW * 0.15, tabY, tabW * 0.7, 3)
-      }
+      ctx.font = `${stripH * 0.52}px serif`
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'
+      ctx.globalAlpha = cleared ? 1.0 : current ? 0.85 : 0.45
+      ctx.fillText(i === 2 ? '👑' : cleared ? '🎁' : '📦', sx, stripY + stripH * 0.7)
+      ctx.globalAlpha = 1
 
-      // Icon
-      ctx.font = '22px serif'; ctx.textAlign = 'center'
-      ctx.fillText(tab.icon, tx + tabW / 2, tabY + 30)
-
-      // 文字
-      ctx.fillStyle = isActive ? '#4fc3f7' : 'rgba(255,255,255,0.55)'
-      ctx.font      = isActive ? 'bold 12px sans-serif' : '12px sans-serif'
-      ctx.fillText(tab.label, tx + tabW / 2, tabY + 52)
-
-      // 分隔線
-      if (i > 0) {
-        ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1
-        ctx.beginPath(); ctx.moveTo(tx, tabY + 12); ctx.lineTo(tx, tabY + tabH - 12); ctx.stroke()
-      }
-
-      this._btnAreas[`tab_${tab.id}`] = { x: tx, y: tabY, w: tabW, h: tabH }
+      ctx.fillStyle = cleared ? '#ffd700' : 'rgba(255,255,255,0.65)'
+      ctx.font = `${stripH * 0.17}px sans-serif`
+      ctx.textBaseline = 'alphabetic'
+      ctx.fillText(ms.label, sx, stripY + stripH * 0.92)
     })
 
-    // Tab 面板（非 level 時顯示佔位）
-    if (this.activeTab !== 'level') {
-      this._drawTabPanel(ctx, W, H - tabH - 100, tabH)
-    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 2
+    ctx.setLineDash([4, 4])
+    ctx.beginPath()
+    ctx.moveTo(startX - slotW * 0.35, stripY + stripH * 0.35)
+    ctx.lineTo(startX + slotW * 2.35, stripY + stripH * 0.35)
+    ctx.stroke()
+    ctx.setLineDash([])
   }
 
-  _drawTabPanel(ctx, W, areaH, tabH) {
-    const labels = {
-      shop:      '🏪 商店  （即將推出）',
-      equipment: '⚔️ 裝備  （即將推出）',
-      upgrade:   '⬆️ 升級  （即將推出）',
-    }
-    ctx.fillStyle = 'rgba(0,0,10,0.7)'
-    ctx.fillRect(0, 100, W, areaH)
-    ctx.fillStyle = 'rgba(255,255,255,0.35)'
-    ctx.font      = '18px sans-serif'; ctx.textAlign = 'center'
-    ctx.fillText(labels[this.activeTab] || '', W / 2, 100 + areaH / 2)
+  _drawBottomAction(ctx, W, y0, H) {
+    const bg = ctx.createLinearGradient(0, y0, 0, y0 + H)
+    bg.addColorStop(0,   'rgba(0,10,40,0.0)')
+    bg.addColorStop(0.3, 'rgba(0,10,40,0.75)')
+    bg.addColorStop(1,   'rgba(0,10,40,0.9)')
+    ctx.fillStyle = bg; ctx.fillRect(0, y0, W, H)
+
+    const pad  = W * 0.03
+    const btnH = H * 0.72
+    const btnY = y0 + (H - btnH) / 2
+
+    // Season pass card
+    const ticketW = W * 0.20, ticketH = btnH
+    ctx.fillStyle = '#7a4510'
+    rrect(ctx, pad, btnY, ticketW, ticketH, 10); ctx.fill()
+    ctx.fillStyle = '#fff'; ctx.font = `bold ${ticketH * 0.28}px sans-serif`
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText('🎟️', pad + ticketW / 2, btnY + ticketH * 0.32)
+    ctx.font = `bold ${ticketH * 0.18}px sans-serif`
+    ctx.textBaseline = 'alphabetic'
+    ctx.fillText('季票', pad + ticketW / 2, btnY + ticketH * 0.62)
+    const xpPct = Math.min(1, (this.save.seasonXP || 650) / (this.save.seasonMax || 950))
+    ctx.fillStyle = '#2a1000'
+    rrect(ctx, pad + 4, btnY + ticketH * 0.72, ticketW - 8, ticketH * 0.14, 4); ctx.fill()
+    ctx.fillStyle = '#ffd060'
+    rrect(ctx, pad + 4, btnY + ticketH * 0.72, Math.max(8, (ticketW - 8) * xpPct), ticketH * 0.14, 4); ctx.fill()
+    ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.font = `${ticketH * 0.13}px sans-serif`
+    ctx.fillText('650/950 XP', pad + ticketW / 2, btnY + ticketH * 0.94)
+
+    // Right mini buttons
+    const rBtnW = W * 0.195, rBtnH = (btnH - 6) / 2
+    const rBtnX = W - pad - rBtnW
+    ctx.fillStyle = '#6010aa'
+    rrect(ctx, rBtnX, btnY, rBtnW, rBtnH, 8); ctx.fill()
+    ctx.fillStyle = '#fff'; ctx.font = `${rBtnH * 0.36}px sans-serif`
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText('🏆 活動', rBtnX + rBtnW/2, btnY + rBtnH/2)
+
+    ctx.fillStyle = T.gold
+    rrect(ctx, rBtnX, btnY + rBtnH + 6, rBtnW, rBtnH, 8); ctx.fill()
+    ctx.fillStyle = '#222'
+    ctx.fillText('🛡️ 公會', rBtnX + rBtnW/2, btnY + rBtnH + 6 + rBtnH/2)
+    ctx.textBaseline = 'alphabetic'
+
+    // Gold battle button
+    const battleX = pad + ticketW + W * 0.025
+    const battleW = rBtnX - battleX - W * 0.025
+    const pulse   = 1 + Math.sin(this.t * 2.8) * 0.018
+
+    ctx.save()
+    ctx.translate(battleX + battleW/2, btnY + btnH/2)
+    ctx.scale(pulse, pulse)
+
+    const glow = ctx.createRadialGradient(0, 0, battleW * 0.1, 0, 0, battleW * 0.65)
+    glow.addColorStop(0, 'rgba(255,210,0,0.35)')
+    glow.addColorStop(1, 'rgba(255,210,0,0)')
+    ctx.fillStyle = glow
+    ctx.fillRect(-battleW * 0.7, -btnH * 0.8, battleW * 1.4, btnH * 1.6)
+
+    const bGrad = ctx.createLinearGradient(-battleW/2, -btnH/2, -battleW/2, btnH/2)
+    bGrad.addColorStop(0,    '#ffd020')
+    bGrad.addColorStop(0.45, '#e8b800')
+    bGrad.addColorStop(1,    '#b88000')
+    ctx.fillStyle = bGrad
+    rrect(ctx, -battleW/2, -btnH/2, battleW, btnH, 14); ctx.fill()
+
+    ctx.fillStyle = 'rgba(255,255,255,0.28)'
+    rrect(ctx, -battleW/2 + 3, -btnH/2 + 3, battleW - 6, btnH * 0.45, 10); ctx.fill()
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1.5
+    rrect(ctx, -battleW/2, -btnH/2, battleW, btnH, 14); ctx.stroke()
+
+    ctx.fillStyle = '#1a0e00'; ctx.font = `bold ${btnH * 0.42}px sans-serif`
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.shadowColor = 'rgba(255,200,0,0.4)'; ctx.shadowBlur = 6
+    ctx.fillText('戰鬥', 0, 2)
+    ctx.shadowBlur = 0
+    ctx.restore()
+
+    this._btnAreas.battleBtn = { x: battleX, y: btnY, w: battleW, h: btnH }
+  }
+
+  _drawBottomNav(ctx, W, y0, H) {
+    ctx.fillStyle = 'rgba(5,15,45,0.96)'
+    ctx.fillRect(0, y0, W, H)
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1
+    ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(W, y0); ctx.stroke()
+
+    const tabW = W / TAB_CONFIG.length
+
+    TAB_CONFIG.forEach((tab, i) => {
+      const tx       = i * tabW
+      const isBattle = tab.id === 'battle'
+
+      if (isBattle) {
+        ctx.fillStyle = T.gold
+        ctx.fillRect(tx, y0, tabW, H)
+      } else if (this.activeTab === tab.id) {
+        ctx.fillStyle = 'rgba(255,255,255,0.1)'
+        ctx.fillRect(tx, y0, tabW, H)
+        ctx.fillStyle = '#4fc3f7'
+        ctx.fillRect(tx + tabW * 0.2, y0, tabW * 0.6, 3)
+      }
+
+      const iconY  = y0 + H * 0.37
+      const labelY = y0 + H * 0.76
+      ctx.font = `${H * 0.33}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      ctx.fillText(tab.icon, tx + tabW / 2, iconY)
+
+      ctx.font = `${isBattle ? 'bold ' : ''}${H * 0.20}px sans-serif`
+      ctx.textBaseline = 'alphabetic'
+      ctx.fillStyle = isBattle ? '#1a0e00' : this.activeTab === tab.id ? '#4fc3f7' : 'rgba(255,255,255,0.55)'
+      ctx.fillText(tab.label, tx + tabW / 2, labelY)
+
+      if (i > 0 && !isBattle && TAB_CONFIG[i-1].id !== 'battle') {
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1
+        ctx.beginPath(); ctx.moveTo(tx, y0 + H * 0.18); ctx.lineTo(tx, y0 + H * 0.82); ctx.stroke()
+      }
+
+      if (['shop', 'equipment', 'upgrade'].includes(tab.id)) {
+        ctx.fillStyle = '#e82020'
+        rrect(ctx, tx + tabW * 0.65, y0 + H * 0.06, 14, 12, 6); ctx.fill()
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 8px sans-serif'
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        ctx.fillText('!', tx + tabW * 0.65 + 7, y0 + H * 0.06 + 6)
+      }
+
+      this._btnAreas[`tab_${tab.id}`] = { x: tx, y: y0, w: tabW, h: H }
+    })
   }
 }
 
-// ── 工具 ──────────────────────────────────────────────────
-function _inRect(x, y, r) {
+function _hit(x, y, r) {
   return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h
 }
 
 function _fmt(n) {
-  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
-  if (n >= 1000)    return (n / 1000).toFixed(1) + 'K'
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
+  if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'K'
   return String(n)
-}
-
-function _lighten(hex, amt) {
-  const clamp = v => Math.max(0, Math.min(255, v))
-  const n = parseInt(hex.replace('#', ''), 16)
-  const r = clamp(((n >> 16) & 0xff) + amt)
-  const g = clamp(((n >> 8)  & 0xff) + amt)
-  const b = clamp(((n)       & 0xff) + amt)
-  return `rgb(${r},${g},${b})`
 }

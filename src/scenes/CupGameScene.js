@@ -83,20 +83,64 @@ export class CupGameScene {
     const topY    = 155
     const botY    = H * 0.70
 
-    // 每章固定佈局：每個元素 = 一列的分段倍率（左→右）
-    // 設計原則：高倍率（X4/X5）較窄，X2 較寬
-    const CONFIGS = [
-      // 第 1 章（2 列）
-      [[3, 2], [2, 4, 2]],
-      // 第 2 章（3 列）
-      [[5, 3, 2], [2, 4, 2], [3, 2]],
-      // 第 3 章（3 列，更高倍率）
-      [[5, 4, 2], [2, 5, 3], [4, 2, 4]],
-    ]
+    // ── 模板池（按難度分三級）──────────────────────────────
+    // 設計原則：每個模板都合理，高倍率段較窄（由 _buildGateRow 自動計算）
+    // basic：最高 X3，適合新手 / 開場門
+    // mid  ：含 X4，中等挑戰
+    // high ：含 X5，高階獎勵
+    const POOLS = {
+      basic: [
+        [2, 2],
+        [2, 3], [3, 2],
+        [2, 2, 2],
+        [3, 2, 2], [2, 2, 3], [2, 3, 2],
+      ],
+      mid: [
+        [4, 2], [2, 4],
+        [3, 3],
+        [4, 2, 2], [2, 4, 2], [2, 2, 4],
+        [4, 3, 2], [2, 3, 4], [3, 4, 2],
+        [3, 3, 2], [2, 3, 3],
+      ],
+      high: [
+        [5, 2], [2, 5],
+        [5, 3], [3, 5],
+        [5, 2, 2], [2, 5, 2], [2, 2, 5],
+        [5, 3, 2], [2, 3, 5],
+        [5, 4, 2], [4, 5, 2], [2, 4, 5],
+      ],
+    }
 
-    const cfg  = CONFIGS[Math.min(chapter, CONFIGS.length - 1)]
-    const nRow = cfg.length
-    return cfg.map((mults, i) => {
+    // 從指定池隨機取一個模板，並隨機打亂段的左右順序
+    const pick = (tier) => _shuffle([...POOLS[tier][Math.floor(Math.random() * POOLS[tier].length)]])
+
+    // ── 每章抽取策略 ─────────────────────────────────────────
+    // 章節越高 → 門越多、高倍率段越常見
+    let rowMults
+    if (chapter === 0) {
+      // 第 1 章：2 列，先 basic 暖身、再 mid 挑戰
+      rowMults = [
+        pick('basic'),
+        pick('mid'),
+      ]
+    } else if (chapter === 1) {
+      // 第 2 章：3 列，mid 為主，60% 機率出現一個 high
+      rowMults = [
+        pick('mid'),
+        pick('mid'),
+        Math.random() < 0.6 ? pick('high') : pick('mid'),
+      ]
+    } else {
+      // 第 3 章：3 列，high 為主，第一列偶爾是 mid
+      rowMults = [
+        Math.random() < 0.35 ? pick('mid') : pick('high'),
+        pick('high'),
+        pick('high'),
+      ]
+    }
+
+    const nRow = rowMults.length
+    return rowMults.map((mults, i) => {
       const y = topY + (botY - topY) * ((i + 0.5) / nRow)
       return this._buildGateRow(y, mults, W)
     })
@@ -635,6 +679,15 @@ function _segColor(mult) {
   if (mult <= 3) return '#e89200'   // 深金 X3
   if (mult <= 4) return '#4caf50'   // 綠色 X4
   return '#1a9e3a'                  // 深綠 X5+
+}
+
+// Fisher-Yates 洗牌（用於隨機打亂分段左右順序）
+function _shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[arr[i], arr[j]] = [arr[j], arr[i]]
+  }
+  return arr
 }
 
 const BALL_COLORS = [

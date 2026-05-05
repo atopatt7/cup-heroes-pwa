@@ -35,6 +35,7 @@ export class CupGameScene {
     this.maxBalls     = 8 + chapter * 2 + bonus
     this.ballsLeft    = this.maxBalls
     this.ballsInFlight = 0   // 正在飛行中的球數（避免太多同時存在）
+    this.MAX_LIVE_BALLS = 40  // 全場最多同時存在的活動球數（防爆炸）
 
     // ── 能量門（穿透型乘數）──────────────────────────────────
     this.gates = this._generateGates()
@@ -263,9 +264,12 @@ export class CupGameScene {
           gate.pulseTimer = 30
 
           const mult = gate.mult
-          // 分裂成 mult 顆（原本1顆 → 變 mult 顆）
-          for (let k = 1; k < mult; k++) {
-            const spread = (k - (mult - 1) / 2) * 22
+          // 分裂成 mult 顆，但受全場球數上限保護
+          const liveBalls = this.balls.filter(b => !b.settled).length
+          const canSpawn  = Math.max(0, this.MAX_LIVE_BALLS - liveBalls)
+          const spawnCount = Math.min(mult - 1, canSpawn)
+          for (let k = 0; k < spawnCount; k++) {
+            const spread = (k - (spawnCount - 1) / 2) * 22
             this._releaseBall(ball.x + spread, ball.y, spread * 0.12)
           }
 
@@ -279,7 +283,7 @@ export class CupGameScene {
         }
       }
 
-      // 落入收集杯
+      // 落入收集杯 → 立即隱藏，不再繪製
       const cup = this.collectCup
       const cupTop = cup.y - cup.h / 2 + 8
       if (!ball.inCup &&
@@ -289,8 +293,6 @@ export class CupGameScene {
         ball.settled = true
         ball.inCup   = true
         ball.vx = 0; ball.vy = 0
-        ball.x = cup.x + (Math.random() - 0.5) * (cup.w * 0.5)
-        ball.y = cupTop + ball.r + cup.count * 2
         this.totalScore++
         cup.count++
         this.ballsInFlight = Math.max(0, this.ballsInFlight - 1)
@@ -309,6 +311,11 @@ export class CupGameScene {
         ball.settled = true
         this.ballsInFlight = Math.max(0, this.ballsInFlight - 1)
       }
+    }
+
+    // 定期清除已結算的球（避免陣列無限增長）
+    if (this.balls.length > 60) {
+      this.balls = this.balls.filter(b => !b.settled)
     }
 
     // 判斷結束
@@ -460,22 +467,28 @@ export class CupGameScene {
     // ── 上方倒球杯 ───────────────────────────────────────────
     this._drawPourCup(ctx)
 
-    // ── 球 ───────────────────────────────────────────────────
+    // ── 球（進杯的隱藏；移除 shadow 提升效能）────────────────
     for (const ball of this.balls) {
-      if (ball.y > H + 10) continue
+      if (ball.inCup) continue          // 已收集 → 不畫
+      if (ball.y > H + 10) continue     // 出界 → 不畫
+
       ctx.beginPath()
       ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2)
-      const bg2 = ctx.createRadialGradient(
-        ball.x - 2, ball.y - 2, 1,
-        ball.x, ball.y, ball.r
-      )
-      bg2.addColorStop(0, '#ffffff')
-      bg2.addColorStop(0.4, ball.color || '#c8e8ff')
-      bg2.addColorStop(1,   ball.settled ? '#8899aa' : (ball.color || '#6090d0') + 'cc')
-      ctx.fillStyle = bg2
-      if (!ball.settled) { ctx.shadowColor = ball.color || '#6090d0'; ctx.shadowBlur = 6 }
+
+      // 飛行中用漸層，靜止用純色（省 GPU）
+      if (!ball.settled) {
+        const bg2 = ctx.createRadialGradient(
+          ball.x - 2, ball.y - 2, 1,
+          ball.x, ball.y, ball.r
+        )
+        bg2.addColorStop(0, '#ffffff')
+        bg2.addColorStop(0.45, ball.color || '#c8e8ff')
+        bg2.addColorStop(1,   (ball.color || '#6090d0') + 'cc')
+        ctx.fillStyle = bg2
+      } else {
+        ctx.fillStyle = '#8899aacc'
+      }
       ctx.fill()
-      ctx.shadowBlur = 0
     }
 
     // ── 浮動文字 ────────────────────────────────────────────

@@ -1,0 +1,18 @@
+export const barbarian = {
+  id: 'barbarian',
+  name: 'Iron Barbarian',
+  nameZh: '鐵血蠻將',
+  description: '超高HP，血越少攻擊越猛，以命換命',
+  hp: 220, maxHp: 220,
+  atk: 16, def: 8,
+  spd: 0.85,
+  crit: 0.10,
+  critMult: 2,
+  color: '#E64A19',
+  colorDark: '#bf360c',
+  startingCards: ['berserk_charge', 'iron_will'],
+  emoji: '🪓',
+  unlocked: false,
+  unlockHint: '通關第二章解鎖',
+  unlockCondition: 'chapter2_clear',
+}

@@ -1,0 +1,18 @@
+export const rogue = {
+  id: 'rogue',
+  name: 'Shadow Rogue',
+  nameZh: '暗影刺客',
+  description: '極高暴擊與攻速，一擊必殺的暗殺者',
+  hp: 110, maxHp: 110,
+  atk: 28, def: 5,
+  spd: 1.5,
+  crit: 0.35,
+  critMult: 2.5,
+  color: '#7B1FA2',
+  colorDark: '#4a148c',
+  startingCards: ['quick_shot', 'battle_frenzy'],
+  emoji: '🗡️',
+  unlocked: false,
+  unlockHint: '通關第一章解鎖',
+  unlockCondition: 'chapter1_clear',
+}

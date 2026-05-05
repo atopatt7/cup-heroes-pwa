@@ -1,0 +1,16 @@
+export const knight = {
+  id: 'knight',
+  name: 'Cup Knight',
+  nameZh: '杯子騎士',
+  description: '攻防平衡的鐵衛，以厚重盾甲撐過苦戰',
+  hp: 160, maxHp: 160,
+  atk: 20, def: 12,
+  spd: 1.0,
+  crit: 0.12,
+  critMult: 2,
+  color: '#2196F3',
+  colorDark: '#0d47a1',
+  startingCards: ['shield_wall', 'double_strike'],
+  emoji: '⚔️',
+  unlocked: true,
+}

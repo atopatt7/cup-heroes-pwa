@@ -1,0 +1,18 @@
+export const druid = {
+  id: 'druid',
+  name: 'Forest Druid',
+  nameZh: '森林德魯伊',
+  description: '以自然魔法治癒同伴，施毒傷害敵人',
+  hp: 130, maxHp: 130,
+  atk: 22, def: 7,
+  spd: 1.0,
+  crit: 0.18,
+  critMult: 2,
+  color: '#388E3C',
+  colorDark: '#1b5e20',
+  startingCards: ['vampiric_touch', 'thorn_blast'],
+  emoji: '🌿',
+  unlocked: false,
+  unlockHint: '通關第三章解鎖',
+  unlockCondition: 'chapter3_clear',
+}

@@ -1,16 +1,51 @@
-// BattleScene.js — 自動戰鬥場景（卡牌效果 + 章節系統）
-import { createBattleState, playerAttack, enemyAttack, checkBattleEnd, getNextTarget } from '../game/AutoBattle.js'
+// BattleScene.js — 自動戰鬥場景（等角視角版）
+import { createBattleState, playerAttack, enemyAttack, checkBattleEnd } from '../game/AutoBattle.js'
 import { generateWaveEnemies, getWaveLabel, CHAPTERS } from '../data/chapters.js'
 import { getCardById } from '../data/cards.js'
 import { SpriteManager } from '../game/SpriteManager.js'
 import { T } from '../utils/theme.js'
-import { drawSky, drawGround, drawHpBar, drawBtn, rrect } from '../utils/drawHelpers.js'
+import { drawHpBar, rrect } from '../utils/drawHelpers.js'
 
-const CLOUDS = [
-  { x: 40,  y: 55,  scale: 0.75, speed: 10 },
-  { x: 210, y: 35,  scale: 0.95, speed: 7  },
-  { x: 345, y: 70,  scale: 0.65, speed: 13 },
+// ── 等角場地比例常數 ─────────────────────────────────────
+const FIELD = {
+  farY:  0.24,
+  nearY: 0.78,
+  farL:  0.28,
+  farR:  0.72,
+  nearL: 0.04,
+  nearR: 0.96,
+}
+
+// ── 敵人散佈位置（fx=左右, fy=遠近 0=遠 1=近）──────────
+const ENEMY_POSITIONS = [
+  [],
+  [{ fx: 0.62, fy: 0.46 }],
+  [{ fx: 0.54, fy: 0.32 }, { fx: 0.78, fy: 0.58 }],
+  [{ fx: 0.65, fy: 0.22 }, { fx: 0.50, fy: 0.52 }, { fx: 0.80, fy: 0.56 }],
+  [{ fx: 0.62, fy: 0.18 }, { fx: 0.48, fy: 0.42 }, { fx: 0.75, fy: 0.38 }, { fx: 0.68, fy: 0.62 }],
+  [{ fx: 0.60, fy: 0.15 }, { fx: 0.48, fy: 0.35 }, { fx: 0.72, fy: 0.32 }, { fx: 0.55, fy: 0.58 }, { fx: 0.82, fy: 0.55 }],
 ]
+
+// ── 場地座標轉換（fx/fy → 畫布 px）──────────────────────
+function _fieldToScreen(fx, fy, W, H) {
+  const farY  = H * FIELD.farY
+  const nearY = H * FIELD.nearY
+  const farL  = W * FIELD.farL
+  const farR  = W * FIELD.farR
+  const nearL = W * FIELD.nearL
+  const nearR = W * FIELD.nearR
+  const leftX  = farL + (nearL - farL) * fy
+  const rightX = farR + (nearR - farR) * fy
+  return {
+    x: leftX + fx * (rightX - leftX),
+    y: farY  + (nearY - farY) * fy,
+  }
+}
+
+// ── 透視縮放（fy=0 遠端小，fy=1 近端大）──────────────────
+function _fieldScale(fy) {
+  return 0.50 + fy * 0.65
+}
 
 export class BattleScene {
   constructor(canvas, ctx, gameState, onVictory, onDefeat) {
@@ -25,51 +60,59 @@ export class BattleScene {
     this.lastTs  = 0
     this._loop   = this._loop.bind(this)
 
-    // 雲朵副本（有 x 位置）
-    this.clouds = CLOUDS.map(c => ({ ...c }))
-
     // 章節 / 波次
     this.chapterIdx = (gameState.chapterIdx ?? 0)
     this.waveIdx    = (gameState.waveIdx    ?? 0)
 
-    // 生成敵人
+    // 生成敵人並賦予等角位置
+    const W = canvas.width
+    const H = canvas.height
     const rawEnemies = generateWaveEnemies(this.chapterIdx, this.waveIdx)
-    const groundY    = canvas.height * 0.72
-    const enemyBaseY = groundY - 10
+    const posCount   = Math.min(rawEnemies.length, ENEMY_POSITIONS.length - 1)
+    const posSet     = ENEMY_POSITIONS[posCount]
 
-    // 設定敵人 Y 位置
-    rawEnemies.forEach(e => { e.y = enemyBaseY })
+    rawEnemies.forEach((e, i) => {
+      const pos = posSet[i] || { fx: 0.60 + (i % 3) * 0.10, fy: 0.30 + (i % 2) * 0.25 }
+      e.fx   = pos.fx
+      e.fy   = pos.fy
+      const sc = _fieldScale(pos.fy)
+      const sp = _fieldToScreen(pos.fx, pos.fy, W, H)
+      e.x    = sp.x
+      e.y    = sp.y
+      e.size = Math.round((e.size || 48) * sc)
+    })
 
     // 建立戰鬥狀態
     this.bs = createBattleState(gameState.hero, rawEnemies, gameState.cardStars || {})
 
-    // 玩家位置
-    this.playerX = 88
-    this.playerY = groundY
+    // 玩家等角位置（左近側）
+    this.playerFx = 0.12
+    this.playerFy = 0.72
+    const pSp     = _fieldToScreen(this.playerFx, this.playerFy, W, H)
+    this.playerX  = pSp.x
+    this.playerY  = pSp.y
 
-    // 攻擊計時 (frame)
-    // spd = 1.0 → 每 70 frame 攻擊一次，spd = 1.5 → 每 47 frame
+    // 攻擊計時
     this.attackInterval = Math.round(70 / (gameState.hero?.spd || 1.0))
     this.attackTimer    = 0
-    this.phase          = 'player_turn'  // player_turn | enemy_turn | end
+    this.phase          = 'player_turn'
 
     // 視覺浮動文字
     this.floats = []
 
-    // 敵人/玩家震動
+    // 震動
     this.shakeTarget = null
     this.shakeTimer  = 0
 
-    // 結束延遲（戰鬥結束後等幾 frame 再切換）
+    // 結束延遲
     this.endTimer = 0
 
-    // 卡牌提示顯示
-    this.cardBanner = null   // { text, color, life }
+    // 卡牌提示
+    this.cardBanner = null
 
-    // 章節標題顯示
-    this.bannerLife = 120    // 開場顯示章節名
+    // 開場章節橫幅
+    this.bannerLife = 120
 
-    // 效果清單從 AutoBattle 回傳
     this.lastResult = null
   }
 
@@ -96,21 +139,14 @@ export class BattleScene {
   _update(dt) {
     const state = this.bs
 
-    // 雲朵漂移
-    const W = this.canvas.width
-    for (const c of this.clouds) {
-      c.x += c.speed * dt
-      if (c.x > W + 120) c.x = -120
-    }
-
     // 浮動文字
     this.floats = this.floats.filter(f => f.life > 0)
     for (const f of this.floats) {
-      f.y   -= 1.5 * dt * 60
+      f.y    -= 1.5 * dt * 60
       f.life -= dt * 60
     }
 
-    // 卡牌提示橫幅
+    // 卡牌橫幅
     if (this.cardBanner) {
       this.cardBanner.life -= dt * 60
       if (this.cardBanner.life <= 0) this.cardBanner = null
@@ -119,10 +155,10 @@ export class BattleScene {
     // 震動
     if (this.shakeTimer > 0) this.shakeTimer -= dt * 60
 
-    // 章節開場倒計時
+    // 開場倒計時
     if (this.bannerLife > 0) { this.bannerLife -= dt * 60; return }
 
-    // 結束後等待
+    // 戰鬥結束等待
     if (this.phase === 'end') {
       this.endTimer -= dt * 60
       if (this.endTimer <= 0) {
@@ -135,7 +171,6 @@ export class BattleScene {
 
     // 攻擊計時
     this.attackTimer += dt * 60
-
     if (this.phase === 'player_turn' && this.attackTimer >= this.attackInterval) {
       this.attackTimer = 0
       this._doPlayerTurn()
@@ -146,28 +181,24 @@ export class BattleScene {
   }
 
   _doPlayerTurn() {
-    const state = this.bs
+    const state  = this.bs
     const result = playerAttack(state)
     if (!result) { this.phase = 'player_turn'; return }
 
     const { damage, isCrit, target, extraDamage } = result
 
-    // 浮動傷害數字
     this._addFloat(target.x, target.y - target.size * 0.6,
-      isCrit ? `暴擊！${damage}` : `-${damage}`,
+      isCrit ? '暴擊！' + damage : '-' + damage,
       isCrit ? '#ffd700' : '#ff8888')
 
     if (extraDamage > 0) {
-      this._addFloat(target.x + 20, target.y - target.size * 0.9, `+${extraDamage}`, '#ffcc44')
+      this._addFloat(target.x + 20, target.y - target.size * 0.9, '+' + extraDamage, '#ffcc44')
     }
 
     this.shakeTarget = 'enemy'
     this.shakeTimer  = 10
 
-    // 顯示觸發的卡牌效果
-    for (const eff of state.effects) {
-      this._showCardBanner(eff.text, eff.color)
-    }
+    for (const eff of state.effects) this._showCardBanner(eff.text, eff.color)
     state.effects.length = 0
 
     if (target.hp <= 0) {
@@ -176,12 +207,11 @@ export class BattleScene {
 
     const end = checkBattleEnd(state)
     if (end) { this._endBattle(); return }
-
     this.phase = 'enemy_turn'
   }
 
   _doEnemyTurn() {
-    const state = this.bs
+    const state   = this.bs
     const results = enemyAttack(state)
     if (!results) { this.phase = 'player_turn'; return }
 
@@ -189,21 +219,17 @@ export class BattleScene {
       this._addFloat(
         this.playerX + (Math.random() - 0.5) * 25,
         this.playerY - 70,
-        `-${damage}`, '#ff5555')
+        '-' + damage, '#ff5555')
     }
 
     this.shakeTarget = 'player'
     this.shakeTimer  = 10
 
-    // 顯示觸發的 on_hit 卡牌效果
-    for (const eff of state.effects) {
-      this._showCardBanner(eff.text, eff.color)
-    }
+    for (const eff of state.effects) this._showCardBanner(eff.text, eff.color)
     state.effects.length = 0
 
     const end = checkBattleEnd(state)
     if (end) { this._endBattle(); return }
-
     this.phase = 'player_turn'
   }
 
@@ -218,15 +244,13 @@ export class BattleScene {
 
   // ─── 繪圖 ────────────────────────────────────────────────
   _draw() {
-    const ctx  = this.ctx
-    const W    = this.canvas.width
-    const H    = this.canvas.height
-    const gY   = H * 0.72
+    const ctx   = this.ctx
+    const W     = this.canvas.width
+    const H     = this.canvas.height
     const state = this.bs
 
-    // 天空 + 地面
-    drawSky(ctx, W, H, this.clouds)
-    drawGround(ctx, W, H, gY)
+    // 等角地板
+    this._drawFloor(ctx, W, H)
 
     // 開場章節標題
     if (this.bannerLife > 0) {
@@ -234,72 +258,176 @@ export class BattleScene {
       return
     }
 
-    // 波次資訊板
+    // 波次資訊板（頂部）
     this._drawWavePanel(ctx, W, H)
 
-    // 玩家 HP 條
-    const pShakeX = this.shakeTarget === 'player' && this.shakeTimer > 0
+    // 玩家 HP 條（UI 固定位置）
+    const pShakeX = (this.shakeTarget === 'player' && this.shakeTimer > 0)
       ? Math.sin(this.shakeTimer * 1.4) * 6 : 0
     drawHpBar(ctx, 10 + pShakeX, H - 58, 170, 22,
       state.player.hp, state.player.maxHp,
       state.player.nameZh || state.player.name, '#4fc3f7')
 
-    // 玩家角色
-    this._drawPlayer(ctx, this.playerX + pShakeX, this.playerY)
+    const eShakeX = (this.shakeTarget === 'enemy' && this.shakeTimer > 0)
+      ? Math.sin(this.shakeTimer * 1.4) * 6 : 0
 
-    // 敵人
-    for (let i = 0; i < state.enemies.length; i++) {
-      const e = state.enemies[i]
-      if (e.hp <= 0) continue
+    // 依 fy 深度排序（遠的先畫，近的後畫壓在上面）
+    const drawList = []
+    for (const e of state.enemies) {
+      if (e.hp > 0) drawList.push({ kind: 'enemy', e, fy: e.fy })
+    }
+    drawList.push({ kind: 'player', fy: this.playerFy })
+    drawList.sort((a, b) => a.fy - b.fy)
 
-      const eShakeX = this.shakeTarget === 'enemy' && this.shakeTimer > 0
-        ? Math.sin(this.shakeTimer * 1.4) * 6 : 0
-
-      this._drawEnemy(ctx, e, e.x + eShakeX)
-      drawHpBar(ctx,
-        e.x + eShakeX - e.size * 0.65,
-        e.y - e.size - 22,
-        e.size * 1.3, 16,
-        e.hp, e.maxHp,
-        e.nameZh || e.name,
-        e.isBoss ? '#ff6b6b' : T.slime)
+    for (const item of drawList) {
+      if (item.kind === 'player') {
+        const sc = _fieldScale(this.playerFy)
+        this._drawPlayer(ctx, this.playerX + pShakeX, this.playerY, sc)
+      } else {
+        const e = item.e
+        this._drawEnemy(ctx, e, e.x + eShakeX)
+        drawHpBar(ctx,
+          e.x + eShakeX - e.size * 0.65,
+          e.y - e.size - 22,
+          e.size * 1.3, 16,
+          e.hp, e.maxHp,
+          e.nameZh || e.name,
+          e.isBoss ? '#ff6b6b' : T.slime)
+      }
     }
 
-    // 牌組顯示（底部）
+    // 牌組（底部）
     this._drawDeckBar(ctx, W, H)
 
     // 卡牌橫幅提示
-    if (this.cardBanner) {
-      this._drawCardBanner(ctx, W, H)
-    }
+    if (this.cardBanner) this._drawCardBanner(ctx, W, H)
 
     // 浮動文字
     for (const f of this.floats) {
       const alpha = Math.min(1, f.life / 30)
       ctx.globalAlpha = alpha
-      ctx.font        = `bold ${f.size || 18}px sans-serif`
+      ctx.font        = 'bold ' + (f.size || 18) + 'px sans-serif'
       ctx.fillStyle   = f.color
       ctx.textAlign   = 'center'
-      ctx.shadowColor = '#000'; ctx.shadowBlur = 4
+      ctx.shadowColor = '#000'
+      ctx.shadowBlur  = 4
       ctx.fillText(f.text, f.x, f.y)
       ctx.shadowBlur  = 0
       ctx.globalAlpha = 1
     }
   }
 
+  // ─── 等角地板 ────────────────────────────────────────────
+  _drawFloor(ctx, W, H) {
+    const farY  = H * FIELD.farY
+    const nearY = H * FIELD.nearY
+    const farL  = W * FIELD.farL
+    const farR  = W * FIELD.farR
+    const nearL = W * FIELD.nearL
+    const nearR = W * FIELD.nearR
+
+    // 天空（地板上方）
+    const skyG = ctx.createLinearGradient(0, 0, 0, farY + 20)
+    skyG.addColorStop(0, '#0a0e1a')
+    skyG.addColorStop(1, '#172040')
+    ctx.fillStyle = skyG
+    ctx.fillRect(0, 0, W, farY + 20)
+
+    // 地板梯形填色
+    const floorG = ctx.createLinearGradient(0, farY, 0, nearY)
+    floorG.addColorStop(0,   '#1a3520')
+    floorG.addColorStop(0.5, '#22402a')
+    floorG.addColorStop(1,   '#162c1a')
+    ctx.fillStyle = floorG
+    ctx.beginPath()
+    ctx.moveTo(farL,  farY)
+    ctx.lineTo(farR,  farY)
+    ctx.lineTo(nearR, nearY)
+    ctx.lineTo(nearL, nearY)
+    ctx.closePath()
+    ctx.fill()
+
+    // 網格線 — 深度方向（縱線）
+    ctx.strokeStyle = 'rgba(80,180,60,0.16)'
+    ctx.lineWidth   = 1
+    for (let i = 0; i <= 7; i++) {
+      const t  = i / 7
+      const x1 = farL  + t * (farR  - farL)
+      const x2 = nearL + t * (nearR - nearL)
+      ctx.beginPath()
+      ctx.moveTo(x1, farY)
+      ctx.lineTo(x2, nearY)
+      ctx.stroke()
+    }
+
+    // 網格線 — 橫向（透視收縮）
+    for (let j = 1; j <= 5; j++) {
+      const t  = j / 6
+      const sy = farY + (nearY - farY) * t
+      const lx = farL + (nearL - farL) * t
+      const rx = farR + (nearR - farR) * t
+      ctx.beginPath()
+      ctx.moveTo(lx, sy)
+      ctx.lineTo(rx, sy)
+      ctx.stroke()
+    }
+
+    // 地板輪廓邊線
+    ctx.strokeStyle = 'rgba(100,210,80,0.28)'
+    ctx.lineWidth   = 1.5
+    ctx.beginPath(); ctx.moveTo(farL,  farY);  ctx.lineTo(nearL, nearY); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(farR,  farY);  ctx.lineTo(nearR, nearY); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(nearL, nearY); ctx.lineTo(nearR, nearY); ctx.stroke()
+
+    // 近端地面輝光（暗橙色燈光感）
+    const glowG = ctx.createLinearGradient(0, nearY - 20, 0, nearY + 30)
+    glowG.addColorStop(0, 'rgba(255,150,50,0.0)')
+    glowG.addColorStop(1, 'rgba(255,120,30,0.12)')
+    ctx.fillStyle = glowG
+    ctx.fillRect(0, nearY - 20, W, 50)
+
+    // 遠端霧氣遮擋
+    const fogG = ctx.createLinearGradient(0, farY - 50, 0, farY + 40)
+    fogG.addColorStop(0, 'rgba(10,14,26,1.0)')
+    fogG.addColorStop(1, 'rgba(10,14,26,0.0)')
+    ctx.fillStyle = fogG
+    ctx.fillRect(0, farY - 50, W, 90)
+
+    // UI 底部區域
+    const uiG = ctx.createLinearGradient(0, nearY, 0, H)
+    uiG.addColorStop(0, '#0e1a0b')
+    uiG.addColorStop(1, '#060c04')
+    ctx.fillStyle = uiG
+    ctx.fillRect(0, nearY, W, H - nearY)
+
+    // 左右牆壁暗影（增加縱深感）
+    const wallL = ctx.createLinearGradient(0, 0, W * 0.18, 0)
+    wallL.addColorStop(0, 'rgba(0,0,0,0.35)')
+    wallL.addColorStop(1, 'rgba(0,0,0,0.0)')
+    ctx.fillStyle = wallL
+    ctx.fillRect(0, farY, W * 0.18, nearY - farY)
+
+    const wallR = ctx.createLinearGradient(W, 0, W * 0.82, 0)
+    wallR.addColorStop(0, 'rgba(0,0,0,0.25)')
+    wallR.addColorStop(1, 'rgba(0,0,0,0.0)')
+    ctx.fillStyle = wallR
+    ctx.fillRect(W * 0.82, farY, W * 0.18, nearY - farY)
+  }
+
+  // ─── 開場章節標題 ────────────────────────────────────────
   _drawOpenBanner(W, H) {
-    const ctx    = this.ctx
-    const alpha  = Math.min(1, this.bannerLife / 30) * Math.min(1, (120 - this.bannerLife) / 30 + 0.3)
+    const ctx   = this.ctx
+    const alpha = Math.min(1, this.bannerLife / 30) * Math.min(1, (120 - this.bannerLife) / 30 + 0.3)
     ctx.globalAlpha = alpha
 
     ctx.fillStyle = 'rgba(0,0,0,0.55)'
     ctx.fillRect(0, H * 0.38, W, 100)
 
     const chapter = CHAPTERS[this.chapterIdx]
-    ctx.fillStyle   = T.gold
-    ctx.font        = 'bold 28px sans-serif'
-    ctx.textAlign   = 'center'
-    ctx.fillText(`第 ${this.chapterIdx + 1} 章`, W / 2, H * 0.38 + 38)
+    ctx.fillStyle = T.gold
+    ctx.font      = 'bold 28px sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('第 ' + (this.chapterIdx + 1) + ' 章', W / 2, H * 0.38 + 38)
 
     ctx.fillStyle = T.textWhite
     ctx.font      = '20px sans-serif'
@@ -308,97 +436,100 @@ export class BattleScene {
     ctx.globalAlpha = 1
   }
 
+  // ─── 波次資訊板 ──────────────────────────────────────────
   _drawWavePanel(ctx, W, H) {
-    // 頂部波次資訊
     const label = getWaveLabel(this.chapterIdx, this.waveIdx)
-    ctx.fillStyle = 'rgba(0,0,40,0.5)'
+    ctx.fillStyle = 'rgba(0,0,40,0.55)'
     rrect(ctx, W * 0.28, 8, W * 0.44, 32, 8); ctx.fill()
-    ctx.fillStyle   = T.textWhite
-    ctx.font        = 'bold 14px sans-serif'
-    ctx.textAlign   = 'center'
+    ctx.fillStyle = T.textWhite
+    ctx.font      = 'bold 14px sans-serif'
+    ctx.textAlign = 'center'
     ctx.fillText(label, W / 2, 29)
   }
 
-  _drawPlayer(ctx, x, groundY) {
-    const y     = groundY
-    const cupW  = 48
-    const cupH  = 58
-    const cupBW = 36
-    const topX  = x - cupW / 2
-    const botX  = x - cupBW / 2
-    const topY  = y - cupH
-    const botY  = y
+  // ─── 玩家（杯子角色）────────────────────────────────────
+  _drawPlayer(ctx, x, groundY, scale) {
+    if (scale === undefined) scale = 1
 
-    // 影子（sprite 或 fallback 都畫）
-    ctx.fillStyle = 'rgba(0,0,0,0.2)'
-    ctx.beginPath(); ctx.ellipse(x, y + 10, 26, 7, 0, 0, Math.PI * 2); ctx.fill()
-
-    // 嘗試 sprite，失敗則用 canvas 繪圖
-    const heroKey = `hero_${this.gameState.hero?.id || 'knight'}`
-    SpriteManager.drawSprite(ctx, heroKey, x, y, 80, 100, () => {
-
-    // 杯身
-    const hero  = this.gameState.hero
-    const c1    = hero?.color      || T.heroBlue
-    const c2    = hero?.colorDark  || T.heroBlueShadow
-    const g     = ctx.createLinearGradient(topX, topY, topX + cupW, topY)
-    g.addColorStop(0, c1); g.addColorStop(0.5, c1 + 'cc'); g.addColorStop(1, c2)
-    ctx.fillStyle = g
-    ctx.beginPath()
-    ctx.moveTo(topX, topY); ctx.lineTo(topX + cupW, topY)
-    ctx.lineTo(botX + cupBW, botY); ctx.lineTo(botX, botY)
-    ctx.closePath(); ctx.fill()
-
-    // 高光
-    ctx.fillStyle = 'rgba(255,255,255,0.22)'
-    ctx.beginPath()
-    ctx.moveTo(topX + 5, topY + 4); ctx.lineTo(topX + cupW * 0.45, topY + 4)
-    ctx.lineTo(botX + cupBW * 0.42, botY - 8); ctx.lineTo(botX + 5, botY - 8)
-    ctx.closePath(); ctx.fill()
-
-    // 杯口
-    const rimG = ctx.createLinearGradient(topX, topY, topX, topY + 10)
-    rimG.addColorStop(0, '#a0d8ff'); rimG.addColorStop(1, c2)
-    ctx.fillStyle = rimG
-    ctx.fillRect(topX - 3, topY - 5, cupW + 6, 12)
-
-    // 臉
-    const eyeY = topY + cupH * 0.38
-    for (const ex of [x - 9, x + 9]) {
-      ctx.fillStyle = '#fff'
-      ctx.beginPath(); ctx.ellipse(ex, eyeY, 6, 6, 0, 0, Math.PI * 2); ctx.fill()
-      ctx.fillStyle = '#1a3a7a'
-      ctx.beginPath(); ctx.ellipse(ex + 1, eyeY + 1, 3.5, 3.5, 0, 0, Math.PI * 2); ctx.fill()
-      ctx.fillStyle = '#fff'
-      ctx.beginPath(); ctx.arc(ex + 2, eyeY - 1, 1.5, 0, Math.PI * 2); ctx.fill()
-    }
-    ctx.strokeStyle = '#1a3a7a'; ctx.lineWidth = 2
-    ctx.beginPath(); ctx.arc(x, eyeY + 13, 8, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke()
-
-    // 劍
     ctx.save()
-    ctx.translate(x + 32, y - 36)
-    ctx.rotate(-0.4)
-    ctx.fillStyle = '#d0e8f8'; ctx.fillRect(-2.5, -26, 5, 32)
-    ctx.strokeStyle = '#7799aa'; ctx.lineWidth = 1; ctx.strokeRect(-2.5, -26, 5, 32)
-    ctx.fillStyle = T.gold; ctx.fillRect(-8, 0, 16, 5)
-    ctx.fillStyle = T.woodMid; ctx.fillRect(-2, 5, 4, 12)
-    ctx.restore()
+    ctx.translate(x, groundY)
+    ctx.scale(scale, scale)
+    ctx.translate(-x, -groundY)
 
-    // 輪廓
-    ctx.strokeStyle = c2; ctx.lineWidth = 2
-    ctx.beginPath()
-    ctx.moveTo(topX, topY); ctx.lineTo(topX + cupW, topY)
-    ctx.lineTo(botX + cupBW, botY); ctx.lineTo(botX, botY)
-    ctx.closePath(); ctx.stroke()
-    }) // end SpriteManager.drawSprite fallback
-  }
-
-  _drawEnemy(ctx, enemy, x) {
-    const size  = enemy.size || 48
-    const y     = enemy.y || (this.canvas.height * 0.72)
+    const y    = groundY
+    const cupW = 48
+    const cupH = 58
+    const cupBW = 36
+    const topX = x - cupW / 2
+    const botX = x - cupBW / 2
+    const topY = y - cupH
+    const botY = y
 
     // 影子
+    ctx.fillStyle = 'rgba(0,0,0,0.22)'
+    ctx.beginPath(); ctx.ellipse(x, y + 10, 26, 7, 0, 0, Math.PI * 2); ctx.fill()
+
+    const heroKey = 'hero_' + ((this.gameState.hero && this.gameState.hero.id) ? this.gameState.hero.id : 'knight')
+    SpriteManager.drawSprite(ctx, heroKey, x, y, 80, 100, () => {
+      const hero = this.gameState.hero
+      const c1   = (hero && hero.color)      ? hero.color      : T.heroBlue
+      const c2   = (hero && hero.colorDark)  ? hero.colorDark  : T.heroBlueShadow
+
+      const g = ctx.createLinearGradient(topX, topY, topX + cupW, topY)
+      g.addColorStop(0, c1); g.addColorStop(0.5, c1 + 'cc'); g.addColorStop(1, c2)
+      ctx.fillStyle = g
+      ctx.beginPath()
+      ctx.moveTo(topX, topY); ctx.lineTo(topX + cupW, topY)
+      ctx.lineTo(botX + cupBW, botY); ctx.lineTo(botX, botY)
+      ctx.closePath(); ctx.fill()
+
+      ctx.fillStyle = 'rgba(255,255,255,0.22)'
+      ctx.beginPath()
+      ctx.moveTo(topX + 5, topY + 4); ctx.lineTo(topX + cupW * 0.45, topY + 4)
+      ctx.lineTo(botX + cupBW * 0.42, botY - 8); ctx.lineTo(botX + 5, botY - 8)
+      ctx.closePath(); ctx.fill()
+
+      const rimG = ctx.createLinearGradient(topX, topY, topX, topY + 10)
+      rimG.addColorStop(0, '#a0d8ff'); rimG.addColorStop(1, c2)
+      ctx.fillStyle = rimG
+      ctx.fillRect(topX - 3, topY - 5, cupW + 6, 12)
+
+      const eyeY = topY + cupH * 0.38
+      for (const ex of [x - 9, x + 9]) {
+        ctx.fillStyle = '#fff'
+        ctx.beginPath(); ctx.ellipse(ex, eyeY, 6, 6, 0, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = '#1a3a7a'
+        ctx.beginPath(); ctx.ellipse(ex + 1, eyeY + 1, 3.5, 3.5, 0, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = '#fff'
+        ctx.beginPath(); ctx.arc(ex + 2, eyeY - 1, 1.5, 0, Math.PI * 2); ctx.fill()
+      }
+      ctx.strokeStyle = '#1a3a7a'; ctx.lineWidth = 2
+      ctx.beginPath(); ctx.arc(x, eyeY + 13, 8, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke()
+
+      ctx.save()
+      ctx.translate(x + 32, y - 36)
+      ctx.rotate(-0.4)
+      ctx.fillStyle = '#d0e8f8'; ctx.fillRect(-2.5, -26, 5, 32)
+      ctx.strokeStyle = '#7799aa'; ctx.lineWidth = 1; ctx.strokeRect(-2.5, -26, 5, 32)
+      ctx.fillStyle = T.gold; ctx.fillRect(-8, 0, 16, 5)
+      ctx.fillStyle = T.woodMid; ctx.fillRect(-2, 5, 4, 12)
+      ctx.restore()
+
+      ctx.strokeStyle = c2; ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.moveTo(topX, topY); ctx.lineTo(topX + cupW, topY)
+      ctx.lineTo(botX + cupBW, botY); ctx.lineTo(botX, botY)
+      ctx.closePath(); ctx.stroke()
+    })
+
+    ctx.restore()
+  }
+
+  // ─── 敵人 ────────────────────────────────────────────────
+  _drawEnemy(ctx, enemy, x) {
+    const size = enemy.size || 48
+    const y    = enemy.y || (this.canvas.height * 0.72)
+
     ctx.fillStyle = 'rgba(0,0,0,0.18)'
     ctx.beginPath(); ctx.ellipse(x, y + 8, size * 0.55, size * 0.15, 0, 0, Math.PI * 2); ctx.fill()
 
@@ -410,19 +541,19 @@ export class BattleScene {
   }
 
   _drawNormalEnemy(ctx, enemy, x, y, size) {
-    const enemyKey = `enemy_${enemy.type || 'slime'}`
+    const enemyKey = 'enemy_' + (enemy.type || 'slime')
     SpriteManager.drawSprite(ctx, enemyKey, x, y, size * 1.2, size * 1.2, () => {
-      const rg = ctx.createRadialGradient(x - size * 0.2, y - size * 0.6, size * 0.1, x, y - size * 0.5, size * 0.8)
-      rg.addColorStop(0, _lighten(enemy.color || '#888', 40))
+      const rg = ctx.createRadialGradient(
+        x - size * 0.2, y - size * 0.6, size * 0.1,
+        x,             y - size * 0.5, size * 0.8)
+      rg.addColorStop(0,   _lighten(enemy.color || '#888', 40))
       rg.addColorStop(0.7, enemy.color || '#888')
-      rg.addColorStop(1, _darken(enemy.color || '#888', 30))
+      rg.addColorStop(1,   _darken(enemy.color || '#888', 30))
       ctx.fillStyle = rg
       ctx.beginPath(); ctx.arc(x, y - size * 0.55, size * 0.55, 0, Math.PI * 2); ctx.fill()
-
       ctx.strokeStyle = _darken(enemy.color || '#888', 40); ctx.lineWidth = 2
       ctx.beginPath(); ctx.arc(x, y - size * 0.55, size * 0.55, 0, Math.PI * 2); ctx.stroke()
 
-      // 眼睛
       const ey = y - size * 0.6
       for (const ex of [x - size * 0.22, x + size * 0.22]) {
         ctx.fillStyle = '#fff'
@@ -431,8 +562,7 @@ export class BattleScene {
         ctx.beginPath(); ctx.ellipse(ex + 1, ey + 1, size * 0.07, size * 0.07, 0, 0, Math.PI * 2); ctx.fill()
       }
 
-      // emoji 標籤
-      ctx.font = `${size * 0.5}px serif`
+      ctx.font      = (size * 0.5) + 'px serif'
       ctx.textAlign = 'center'
       ctx.fillText(enemy.emoji || '👾', x, y - size * 0.3)
     })
@@ -441,12 +571,11 @@ export class BattleScene {
   _drawBossEnemy(ctx, enemy, x, y, size) {
     const bw = size * 1.1
     const bh = size * 1.3
-    const enemyKey = `enemy_${enemy.type || 'slime'}`
+    const enemyKey = 'enemy_' + (enemy.type || 'slime')
     SpriteManager.drawSprite(ctx, enemyKey, x, y, bw * 1.4, (bh + 30) * 1.2, () => {
-      // Boss 身體（杯狀）
       const rg = ctx.createRadialGradient(x, y - bh * 0.5, bh * 0.05, x, y - bh * 0.5, bh * 0.8)
       rg.addColorStop(0, _lighten(enemy.color || '#c00', 40))
-      rg.addColorStop(1, _darken(enemy.color || '#c00', 20))
+      rg.addColorStop(1, _darken(enemy.color  || '#c00', 20))
       ctx.fillStyle = rg
       ctx.beginPath()
       ctx.moveTo(x - bw / 2, y - bh)
@@ -455,21 +584,19 @@ export class BattleScene {
       ctx.lineTo(x - bw * 0.35, y)
       ctx.closePath(); ctx.fill()
 
-      // 皇冠
       const crownY = y - bh - 14
       ctx.fillStyle = T.gold
       ctx.beginPath()
-      ctx.moveTo(x - bw * 0.4, crownY + 16)
+      ctx.moveTo(x - bw * 0.4,  crownY + 16)
       ctx.lineTo(x - bw * 0.45, crownY)
       ctx.lineTo(x - bw * 0.15, crownY + 10)
-      ctx.lineTo(x, crownY - 6)
+      ctx.lineTo(x,              crownY - 6)
       ctx.lineTo(x + bw * 0.15, crownY + 10)
       ctx.lineTo(x + bw * 0.45, crownY)
-      ctx.lineTo(x + bw * 0.4, crownY + 16)
+      ctx.lineTo(x + bw * 0.4,  crownY + 16)
       ctx.closePath(); ctx.fill()
       ctx.strokeStyle = T.goldDark; ctx.lineWidth = 1.5; ctx.stroke()
 
-      // 眼睛（憤怒）
       const ey = y - bh * 0.58
       for (const ex of [x - bw * 0.2, x + bw * 0.2]) {
         ctx.fillStyle = '#ff0'
@@ -478,75 +605,70 @@ export class BattleScene {
         ctx.beginPath(); ctx.ellipse(ex, ey + 1, bw * 0.06, bw * 0.06, 0, 0, Math.PI * 2); ctx.fill()
       }
 
-      // emoji
-      ctx.font = `${size * 0.4}px serif`
+      ctx.font      = (size * 0.4) + 'px serif'
       ctx.textAlign = 'center'
       ctx.fillText(enemy.emoji || '👑', x, y - bh * 0.25)
     })
   }
 
+  // ─── 牌組顯示（底部）────────────────────────────────────
   _drawDeckBar(ctx, W, H) {
-    const deck   = this.bs.player.deck || []
+    const deck = this.bs.player.deck || []
     if (deck.length === 0) return
 
-    const barH   = 52
-    const barY   = H - barH - 2
+    const barH = 52
+    const barY = H - barH - 2
     ctx.fillStyle = 'rgba(0,10,40,0.72)'
     rrect(ctx, 0, barY, W, barH + 4, 0); ctx.fill()
 
     const cardW = 46
     const gap   = 6
     const total = deck.length * (cardW + gap) - gap
-    let cx      = (W - total) / 2
+    let   cx    = (W - total) / 2
 
     ctx.textAlign = 'center'
-
     for (const cardId of deck) {
       const card = getCardById(cardId)
       if (!card) { cx += cardW + gap; continue }
       const rCol = card.group === 'hero' ? '#d4a017' : '#4a90d9'
 
-      // 卡片背景
-      ctx.fillStyle = `${rCol}33`
+      ctx.fillStyle = rCol + '33'
       rrect(ctx, cx, barY + 4, cardW, barH - 8, 6); ctx.fill()
       ctx.strokeStyle = rCol; ctx.lineWidth = 1.5
       rrect(ctx, cx, barY + 4, cardW, barH - 8, 6); ctx.stroke()
 
-      // icon
       ctx.font = '18px serif'
       ctx.fillText(card.icon || '?', cx + cardW / 2, barY + 24)
 
-      // 名稱
       ctx.font      = '9px sans-serif'
       ctx.fillStyle = rCol
-      const shortName = card.nameZh || card.name
-      ctx.fillText(shortName.slice(0, 4), cx + cardW / 2, barY + 38)
+      ctx.fillText((card.nameZh || card.name).slice(0, 4), cx + cardW / 2, barY + 38)
 
       cx += cardW + gap
     }
   }
 
+  // ─── 卡牌橫幅提示 ────────────────────────────────────────
   _drawCardBanner(ctx, W, H) {
     const banner = this.cardBanner
     const alpha  = Math.min(1, banner.life / 20)
     ctx.globalAlpha = alpha
 
-    ctx.fillStyle = `${banner.color}33`
+    ctx.fillStyle = banner.color + '33'
     rrect(ctx, W * 0.1, H * 0.44, W * 0.8, 34, 8); ctx.fill()
     ctx.strokeStyle = banner.color; ctx.lineWidth = 1.5
     rrect(ctx, W * 0.1, H * 0.44, W * 0.8, 34, 8); ctx.stroke()
 
-    ctx.fillStyle   = banner.color
-    ctx.font        = 'bold 14px sans-serif'
-    ctx.textAlign   = 'center'
+    ctx.fillStyle = banner.color
+    ctx.font      = 'bold 14px sans-serif'
+    ctx.textAlign = 'center'
     ctx.fillText(banner.text, W / 2, H * 0.44 + 22)
-
     ctx.globalAlpha = 1
   }
 
   // ─── 輔助 ────────────────────────────────────────────────
-  _addFloat(x, y, text, color, size = 18) {
-    this.floats.push({ x, y, text, color, life: 60, size })
+  _addFloat(x, y, text, color, size) {
+    this.floats.push({ x, y, text, color, life: 60, size: size || 18 })
   }
 
   _showCardBanner(text, color) {
@@ -559,7 +681,7 @@ function _lighten(hex, amt) {
   const r = Math.min(255, ((n >> 16) & 0xff) + amt)
   const g = Math.min(255, ((n >> 8)  & 0xff) + amt)
   const b = Math.min(255, ((n)       & 0xff) + amt)
-  return `rgb(${r},${g},${b})`
+  return 'rgb(' + r + ',' + g + ',' + b + ')'
 }
 
 function _darken(hex, amt) {
@@ -567,5 +689,5 @@ function _darken(hex, amt) {
   const r = Math.max(0, ((n >> 16) & 0xff) - amt)
   const g = Math.max(0, ((n >> 8)  & 0xff) - amt)
   const b = Math.max(0, ((n)       & 0xff) - amt)
-  return `rgb(${r},${g},${b})`
+  return 'rgb(' + r + ',' + g + ',' + b + ')'
 }

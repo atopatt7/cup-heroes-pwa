@@ -3,15 +3,16 @@
 const SAVE_KEY = 'cup-heroes-save-v2'
 
 const DEFAULT_SAVE = {
-  unlockedHeroes:    ['knight'],
-  bestWave:          0,
-  unlockedChapterIdx: 0,   // 0=只有ch1, 1=ch1+ch2, 2=全部; 按通關解鎖
-  gold:              0,
-  diamonds:          0,
-  playerLevel:       1,
-  playerExp:         0,
-  selectedHeroId:    'knight',
-  heroDeck:          {},
+  unlockedHeroes:     ['knight'],
+  bestWave:           0,
+  unlockedChapterIdx: 0,
+  gold:               0,
+  diamonds:           0,
+  playerLevel:        1,
+  playerExp:          0,
+  selectedHeroId:     'knight',
+  heroDeck:           {},
+  titles:             [],
 }
 
 export const SaveManager = {
@@ -53,7 +54,6 @@ export const SaveManager = {
     return this.load().unlockedHeroes.includes(heroId)
   },
 
-  // 解鎖章節（通關後呼叫，只前進不倒退）
   unlockChapter(chapterIdx) {
     const data = this.load()
     if (chapterIdx > (data.unlockedChapterIdx ?? 0)) {
@@ -101,6 +101,15 @@ export const SaveManager = {
     }
     this.save(data)
     return { level: data.playerLevel, exp: data.playerExp }
+  },
+
+  unlockTitle(title) {
+    const data = this.load()
+    if (!data.titles) data.titles = []
+    if (!data.titles.includes(title)) {
+      data.titles.push(title)
+      this.save(data)
+    }
   },
 
   reset() {

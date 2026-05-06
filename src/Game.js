@@ -8,8 +8,8 @@ import { GameOverScene }   from './scenes/GameOverScene.js'
 import { VictoryScene }    from './scenes/VictoryScene.js'
 import { SaveManager }     from './game/SaveManager.js'
 import { SpriteManager }   from './game/SpriteManager.js'
-import { CHAPTERS }        from './data/chapters.js'
-import { getHero }         from './data/heroes.js'
+import { CHAPTERS, getChapterReward } from './data/chapters.js'
+import { getHero }                    from './data/heroes.js'
 
 const TOTAL_CHAPTERS = CHAPTERS.length
 
@@ -93,9 +93,6 @@ export class Game {
 
   showVictory(gameState) {
     SaveManager.updateBestWave(TOTAL_CHAPTERS * 15)
-    SaveManager.unlockHero('rogue')
-    SaveManager.unlockHero('barbarian')
-    SaveManager.unlockHero('druid')
     this._switch(new VictoryScene(
       this.canvas, this.ctx, gameState,
       () => this.showHome()
@@ -116,10 +113,8 @@ export class Game {
       const clearedChapter = gameState.chapterIdx
       const nextChapter    = clearedChapter + 1
 
-      // 解鎖英雄（依章節）
-      if (clearedChapter === 0) SaveManager.unlockHero('rogue')
-      if (clearedChapter === 1) SaveManager.unlockHero('barbarian')
-      if (clearedChapter === 2) SaveManager.unlockHero('druid')
+      // 套用章節通關獎勵（從章節資料讀取，不寫死在這裡）
+      this._applyChapterReward(clearedChapter, gameState)
 
       if (nextChapter >= TOTAL_CHAPTERS) {
         // 全部 3 章全通關 → 勝利畫面
@@ -135,6 +130,29 @@ export class Game {
       gameState.waveIdx = nextWave
       this.startBattle(gameState)
     }
+  }
+
+  // 讀章節 clearReward，自動套用所有獎勵
+  _applyChapterReward(chapterIdx, gameState) {
+    const reward = getChapterReward(chapterIdx)
+    if (!reward) return
+
+    // 解鎖英雄
+    if (reward.unlockHero) SaveManager.unlockHero(reward.unlockHero)
+
+    // 金幣
+    if (reward.gold) {
+      gameState.gold = (gameState.gold || 0) + reward.gold
+      SaveManager.addGold(reward.gold)
+    }
+
+    // 解鎖獎勵卡牌（加入本局牌池，讓 UpgradeScene 可以抽到）
+    if (reward.cards && reward.cards.length > 0) {
+      gameState.rewardCards = (gameState.rewardCards || []).concat(reward.cards)
+    }
+
+    // 成就稱號（存檔）
+    if (reward.title) SaveManager.unlockTitle(reward.title)
   }
 
   _switch(scene) {

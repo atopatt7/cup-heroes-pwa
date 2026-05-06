@@ -6,6 +6,7 @@ import { CupGameScene }    from './scenes/CupGameScene.js'
 import { UpgradeScene }    from './scenes/UpgradeScene.js'
 import { GameOverScene }   from './scenes/GameOverScene.js'
 import { VictoryScene }    from './scenes/VictoryScene.js'
+import { EquipmentScene }  from './scenes/EquipmentScene.js'
 import { SaveManager }     from './game/SaveManager.js'
 import { SpriteManager }   from './game/SpriteManager.js'
 import { CHAPTERS, getChapterReward } from './data/chapters.js'
@@ -42,6 +43,9 @@ export class Game {
             SaveManager.setSelectedHero(heroId)
             this.showHome()
           })
+        },
+        onEquipment: () => {
+          this.showEquipment()
         },
       }
     ))
@@ -80,6 +84,18 @@ export class Game {
     this._switch(new UpgradeScene(
       this.canvas, this.ctx, gameState, totalScore,
       () => this._advanceWave(gameState)
+    ))
+  }
+
+  showEquipment() {
+    // 取目前選定的英雄作為展示用
+    const save   = SaveManager.load()
+    const heroId = save.selectedHeroId || 'knight'
+    const hero   = getHero(heroId)
+    const gameState = { hero }
+    this._switch(new EquipmentScene(
+      this.canvas, this.ctx, gameState,
+      () => this.showHome()
     ))
   }
 

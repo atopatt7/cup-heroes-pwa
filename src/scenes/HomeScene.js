@@ -103,8 +103,9 @@ export class HomeScene {
     }
     for (const tab of TAB_CONFIG) {
       if (A[`tab_${tab.id}`] && _hit(tx, ty, A[`tab_${tab.id}`])) {
-        if (tab.id === 'hero')      { this.stop(); this.callbacks.onHeroSelect?.() }
-        else if (tab.id === 'shop') { this.callbacks.onShop?.() }
+        if (tab.id === 'hero')           { this.stop(); this.callbacks.onHeroSelect?.() }
+        else if (tab.id === 'shop')      { this.callbacks.onShop?.() }
+        else if (tab.id === 'equipment') { this.stop(); this.callbacks.onEquipment?.() }
         else this.activeTab = tab.id
         return
       }

@@ -79,6 +79,7 @@ export class BattleScene {
     this.phase          = 'player_turn'
 
     this.floats     = []
+    this.anims      = []   // 攻擊動畫佇列
     this.shakeTarget = null
     this.shakeTimer  = 0
     this.endTimer    = 0
@@ -143,6 +144,21 @@ export class BattleScene {
       if (this.cardBanner.life <= 0) this.cardBanner = null
     }
 
+    // 攻擊動畫更新
+    this.anims = this.anims.filter(a => !a.done)
+    for (const a of this.anims) {
+      a.progress += dt * 60 / a.duration
+      a.spin     += dt * 60 * (a.spinSpeed || 0.35)
+      const t  = Math.min(a.progress, 1)
+      const ax = a.fromX + (a.toX - a.fromX) * t
+      const arcY = a.arcH ? -a.arcH * Math.sin(t * Math.PI) : 0
+      const ay = a.fromY + (a.toY - a.fromY) * t + arcY
+      a.curX = ax; a.curY = ay
+      a.trail.push({ x: ax, y: ay, life: 1 })
+      if (a.trail.length > 10) a.trail.shift()
+      if (a.progress >= 1) a.done = true
+    }
+
     // 震動
     if (this.shakeTimer > 0) this.shakeTimer -= dt * 60
 
@@ -180,6 +196,7 @@ export class BattleScene {
       isCrit ? '#ffd700' : '#ff8888',
       isCrit ? 22 : 18)
 
+    this._spawnHeroAnim(target)
     this.shakeTarget = 'enemy'; this.shakeTimer = 10
     for (const eff of state.effects) this._showCardBanner(eff.text, eff.color)
     state.effects.length = 0
@@ -202,6 +219,7 @@ export class BattleScene {
         '-' + damage, '#ff5555', 18)
     }
 
+    for (const r of results) { if (!r.stunned && r.damage > 0) this._spawnEnemyAnim(r.attacker) }
     this.shakeTarget = 'player'; this.shakeTimer = 10
     for (const eff of state.effects) this._showCardBanner(eff.text, eff.color)
     state.effects.length = 0
@@ -261,6 +279,9 @@ export class BattleScene {
         e.nameZh || e.name,
         e.isBoss ? '#ff6b6b' : T.slime)
     }
+
+    // 攻擊動畫
+    this._drawAnims(ctx)
 
     // 卡牌橫幅
     if (this.cardBanner) this._drawCardBanner(ctx, W, H)
@@ -707,9 +728,258 @@ export class BattleScene {
     this.floats.push({ x, y, text, color, life: 60, size: size || 18 })
   }
 
+  // ─── 動畫生成 ────────────────────────────────────────────
+  _spawnHeroAnim(target) {
+    const heroId = this.gameState.hero?.id || 'knight'
+    const fromX = this.playerX + 28
+    const fromY = this.playerY - 55
+    const toX   = target.x
+    const toY   = target.y - (target.size || 48) * 0.5
+
+    const cfg = {
+      knight:    { type: 'sword_bolt', color: '#ffe566', glow: '#fff8a0', spinSpeed: 0.25, duration: 16 },
+      rogue:     { type: 'shuriken',   color: '#c0c0ff', glow: '#9966ff', spinSpeed: 0.55, duration: 15 },
+      barbarian: { type: 'axe_throw',  color: '#ff8833', glow: '#ff5500', spinSpeed: 0.70, duration: 18, arcH: 55 },
+      druid:     { type: 'nature_orb', color: '#44dd88', glow: '#aaffcc', spinSpeed: 0.10, duration: 18 },
+    }
+    const c = cfg[heroId] || cfg.knight
+    this.anims.push({ ...c, fromX, fromY, toX, toY, progress: 0, spin: 0, trail: [], done: false, dir: 1 })
+  }
+
+  _spawnEnemyAnim(attacker) {
+    if (!attacker) return
+    const fromX = attacker.x - 20
+    const fromY = attacker.y - (attacker.size || 48) * 0.5
+    const toX   = this.playerX
+    const toY   = this.playerY - 55
+    this.anims.push({
+      type: 'enemy_orb', color: attacker.color || '#ff4444', glow: '#ff8866',
+      fromX, fromY, toX, toY,
+      progress: 0, duration: 16, spin: 0, spinSpeed: 0.20, trail: [], done: false, dir: -1,
+    })
+  }
+
+  // ─── 動畫繪製 ────────────────────────────────────────────
+  _drawAnims(ctx) {
+    for (const a of this.anims) {
+      if (a.done) continue
+      const t    = Math.min(a.progress, 1)
+      const px   = a.curX ?? (a.fromX + (a.toX - a.fromX) * t)
+      const py   = a.curY ?? (a.fromY + (a.toY - a.fromY) * t)
+      const fade = t < 0.15 ? t / 0.15 : (t > 0.85 ? (1 - t) / 0.15 : 1)
+
+      ctx.save()
+      ctx.globalAlpha = fade
+
+      switch (a.type) {
+        case 'sword_bolt':  _animSwordBolt(ctx, a, px, py); break
+        case 'shuriken':    _animShuriken(ctx, a, px, py);  break
+        case 'axe_throw':   _animAxe(ctx, a, px, py);       break
+        case 'nature_orb':  _animNatureOrb(ctx, a, px, py); break
+        case 'enemy_orb':   _animEnemyOrb(ctx, a, px, py);  break
+      }
+
+      // 到達目標時顯示撞擊閃光
+      if (t > 0.85) {
+        const impact = (t - 0.85) / 0.15
+        _animImpact(ctx, a.toX, a.toY, a.color, impact)
+      }
+
+      ctx.restore()
+    }
+  }
+
   _showCardBanner(text, color) {
     this.cardBanner = { text, color, life: 70 }
   }
+}
+
+
+// ════════════════════════════════════════════════════════════
+// 攻擊動畫繪製函式
+// ════════════════════════════════════════════════════════════
+
+// 劍光飛矢（騎士）：細長發光梭形
+function _animSwordBolt(ctx, a, px, py) {
+  // 軌跡
+  for (let i = 0; i < a.trail.length; i++) {
+    const tr = a.trail[i]
+    const ta = (i / a.trail.length) * 0.4
+    ctx.strokeStyle = a.glow
+    ctx.lineWidth   = (i / a.trail.length) * 5
+    ctx.globalAlpha *= ta
+    ctx.beginPath(); ctx.moveTo(tr.x, tr.y)
+    if (a.trail[i + 1]) ctx.lineTo(a.trail[i + 1].x, a.trail[i + 1].y)
+    ctx.stroke()
+    ctx.globalAlpha = 1
+  }
+  // 梭形本體
+  const angle = Math.atan2(a.toY - a.fromY, a.toX - a.fromX)
+  ctx.save()
+  ctx.translate(px, py)
+  ctx.rotate(angle)
+  // 外發光
+  ctx.shadowColor = a.glow; ctx.shadowBlur = 14
+  const g = ctx.createLinearGradient(-22, 0, 22, 0)
+  g.addColorStop(0, 'transparent'); g.addColorStop(0.5, a.color); g.addColorStop(1, 'transparent')
+  ctx.fillStyle = g
+  ctx.beginPath()
+  ctx.ellipse(0, 0, 22, 5, 0, 0, Math.PI * 2)
+  ctx.fill()
+  // 亮芯
+  ctx.fillStyle = '#ffffff'
+  ctx.beginPath(); ctx.ellipse(0, 0, 10, 2, 0, 0, Math.PI * 2); ctx.fill()
+  ctx.shadowBlur = 0
+  ctx.restore()
+}
+
+// 手裡劍（盜賊）：旋轉四角星
+function _animShuriken(ctx, a, px, py) {
+  // 紫色光跡
+  for (let i = 0; i < a.trail.length - 1; i++) {
+    const tr   = a.trail[i]
+    const ta   = (i / a.trail.length) * 0.35
+    ctx.beginPath()
+    ctx.arc(tr.x, tr.y, 3 * ta * 2, 0, Math.PI * 2)
+    ctx.fillStyle = a.glow
+    ctx.globalAlpha *= ta
+    ctx.fill()
+    ctx.globalAlpha = 1
+  }
+  // 旋轉四角星
+  ctx.save()
+  ctx.translate(px, py)
+  ctx.rotate(a.spin)
+  ctx.shadowColor = a.glow; ctx.shadowBlur = 10
+  ctx.fillStyle = a.color
+  ctx.beginPath()
+  for (let i = 0; i < 4; i++) {
+    const ang  = i * Math.PI / 2 - Math.PI / 4
+    const ang2 = ang + Math.PI / 4
+    ctx.lineTo(Math.cos(ang)  * 11, Math.sin(ang)  * 11)
+    ctx.lineTo(Math.cos(ang2) * 4,  Math.sin(ang2) * 4)
+  }
+  ctx.closePath(); ctx.fill()
+  // 中心亮點
+  ctx.fillStyle = '#fff'
+  ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill()
+  ctx.shadowBlur = 0
+  ctx.restore()
+}
+
+// 飛斧（狂戰士）：旋轉斧頭形狀
+function _animAxe(ctx, a, px, py) {
+  // 橙色軌跡
+  for (let i = 0; i < a.trail.length - 1; i++) {
+    const tr = a.trail[i]
+    const ta = (i / a.trail.length) * 0.5
+    ctx.beginPath()
+    ctx.arc(tr.x, tr.y, 5 * ta, 0, Math.PI * 2)
+    ctx.fillStyle = a.color
+    ctx.globalAlpha *= ta * 0.6
+    ctx.fill()
+    ctx.globalAlpha = 1
+  }
+  ctx.save()
+  ctx.translate(px, py)
+  ctx.rotate(a.spin * 2.5)
+  ctx.shadowColor = a.glow; ctx.shadowBlur = 14
+  // 斧刃（弧形扇形）
+  ctx.fillStyle = a.color
+  ctx.beginPath()
+  ctx.moveTo(0, 0)
+  ctx.arc(0, 0, 14, -Math.PI * 0.7, Math.PI * 0.1)
+  ctx.closePath(); ctx.fill()
+  // 斧柄
+  ctx.strokeStyle = '#aa5500'; ctx.lineWidth = 3; ctx.lineCap = 'round'
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 13); ctx.stroke()
+  // 亮邊
+  ctx.strokeStyle = '#ffcc66'; ctx.lineWidth = 1.5
+  ctx.beginPath()
+  ctx.arc(0, 0, 14, -Math.PI * 0.7, Math.PI * 0.1)
+  ctx.stroke()
+  ctx.shadowBlur = 0
+  ctx.restore()
+}
+
+// 自然法球（德魯伊）：發光綠球
+function _animNatureOrb(ctx, a, px, py) {
+  // 綠色光跡（葉片狀小點）
+  for (let i = 0; i < a.trail.length; i++) {
+    const tr = a.trail[i]
+    const ta = (i / a.trail.length)
+    ctx.save()
+    ctx.globalAlpha *= ta * 0.6
+    ctx.translate(tr.x + Math.sin(i * 1.2) * 5, tr.y)
+    ctx.fillStyle = a.color
+    ctx.beginPath()
+    ctx.ellipse(0, 0, 4 * ta, 2 * ta, i * 0.5, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+  }
+  // 外光暈
+  const rg = ctx.createRadialGradient(px, py, 0, px, py, 16)
+  rg.addColorStop(0, a.glow); rg.addColorStop(1, 'transparent')
+  ctx.fillStyle = rg
+  ctx.beginPath(); ctx.arc(px, py, 16, 0, Math.PI * 2); ctx.fill()
+  // 球體
+  ctx.shadowColor = a.glow; ctx.shadowBlur = 12
+  const bg = ctx.createRadialGradient(px - 3, py - 3, 1, px, py, 9)
+  bg.addColorStop(0, '#aaffdd'); bg.addColorStop(1, a.color)
+  ctx.fillStyle = bg
+  ctx.beginPath(); ctx.arc(px, py, 9, 0, Math.PI * 2); ctx.fill()
+  // 旋轉光環
+  ctx.save()
+  ctx.translate(px, py); ctx.rotate(a.spin)
+  ctx.strokeStyle = 'rgba(180,255,210,0.6)'; ctx.lineWidth = 1.5
+  ctx.beginPath(); ctx.ellipse(0, 0, 13, 5, 0, 0, Math.PI * 2); ctx.stroke()
+  ctx.shadowBlur = 0
+  ctx.restore()
+}
+
+// 敵人攻擊球（各類敵人）
+function _animEnemyOrb(ctx, a, px, py) {
+  // 軌跡
+  for (let i = 0; i < a.trail.length; i++) {
+    const tr = a.trail[i]
+    const ta = (i / a.trail.length) * 0.4
+    ctx.beginPath()
+    ctx.arc(tr.x, tr.y, 4 * (i / a.trail.length), 0, Math.PI * 2)
+    ctx.fillStyle = a.color
+    ctx.globalAlpha *= ta
+    ctx.fill()
+    ctx.globalAlpha = 1
+  }
+  // 發光球
+  const rg = ctx.createRadialGradient(px, py, 0, px, py, 12)
+  rg.addColorStop(0, '#ffffff'); rg.addColorStop(0.4, a.glow); rg.addColorStop(1, 'transparent')
+  ctx.fillStyle = rg
+  ctx.beginPath(); ctx.arc(px, py, 12, 0, Math.PI * 2); ctx.fill()
+  // 核心
+  ctx.shadowColor = a.color; ctx.shadowBlur = 10
+  ctx.fillStyle = a.color
+  ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2); ctx.fill()
+  ctx.shadowBlur = 0
+}
+
+// 撞擊閃光（所有動畫共用）
+function _animImpact(ctx, x, y, color, t) {
+  const r = 20 * t; const a = (1 - t) * 0.9
+  const rg = ctx.createRadialGradient(x, y, 0, x, y, r)
+  rg.addColorStop(0, '#ffffff'); rg.addColorStop(0.5, color); rg.addColorStop(1, 'transparent')
+  ctx.globalAlpha = a; ctx.fillStyle = rg
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill()
+  // 放射光線
+  ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.globalAlpha = a * 0.7
+  for (let i = 0; i < 6; i++) {
+    const ang = (i / 6) * Math.PI * 2
+    const r1 = r * 0.6, r2 = r * 1.3
+    ctx.beginPath()
+    ctx.moveTo(x + Math.cos(ang) * r1, y + Math.sin(ang) * r1)
+    ctx.lineTo(x + Math.cos(ang) * r2, y + Math.sin(ang) * r2)
+    ctx.stroke()
+  }
+  ctx.globalAlpha = 1
 }
 
 // ── 模組輔助 ─────────────────────────────────────────────

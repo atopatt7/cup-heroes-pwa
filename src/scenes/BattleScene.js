@@ -1,4 +1,4 @@
-// BattleScene.js — 自動戰鬥場景（等角視角版）
+// BattleScene.js — 自動戰鬥場景（橫版側視圖）
 import { createBattleState, playerAttack, enemyAttack, checkBattleEnd } from '../game/AutoBattle.js'
 import { generateWaveEnemies, getWaveLabel, CHAPTERS } from '../data/chapters.js'
 import { getCardById } from '../data/cards.js'
@@ -6,46 +6,20 @@ import { SpriteManager } from '../game/SpriteManager.js'
 import { T } from '../utils/theme.js'
 import { drawHpBar, rrect } from '../utils/drawHelpers.js'
 
-// ── 等角場地比例常數 ─────────────────────────────────────
-const FIELD = {
-  farY:  0.24,
-  nearY: 0.78,
-  farL:  0.28,
-  farR:  0.72,
-  nearL: 0.04,
-  nearR: 0.96,
-}
+// ── 佈局常數 ─────────────────────────────────────────────
+const TOP_H        = 58    // 頂部UI高度
+const DECK_H       = 58    // 底部牌組高度
+const GROUND_RATIO = 0.60  // 地面佔戰場高度比例
 
-// ── 敵人散佈位置（fx=左右, fy=遠近 0=遠 1=近）──────────
-const ENEMY_POSITIONS = [
+// ── 敵人橫版 X 位置（0~1 比例）──────────────────────────
+const ENEMY_FX = [
   [],
-  [{ fx: 0.62, fy: 0.46 }],
-  [{ fx: 0.54, fy: 0.32 }, { fx: 0.78, fy: 0.58 }],
-  [{ fx: 0.65, fy: 0.22 }, { fx: 0.50, fy: 0.52 }, { fx: 0.80, fy: 0.56 }],
-  [{ fx: 0.62, fy: 0.18 }, { fx: 0.48, fy: 0.42 }, { fx: 0.75, fy: 0.38 }, { fx: 0.68, fy: 0.62 }],
-  [{ fx: 0.60, fy: 0.15 }, { fx: 0.48, fy: 0.35 }, { fx: 0.72, fy: 0.32 }, { fx: 0.55, fy: 0.58 }, { fx: 0.82, fy: 0.55 }],
+  [0.68],
+  [0.58, 0.78],
+  [0.55, 0.68, 0.82],
+  [0.52, 0.63, 0.74, 0.85],
+  [0.50, 0.59, 0.68, 0.78, 0.87],
 ]
-
-// ── 場地座標轉換（fx/fy → 畫布 px）──────────────────────
-function _fieldToScreen(fx, fy, W, H) {
-  const farY  = H * FIELD.farY
-  const nearY = H * FIELD.nearY
-  const farL  = W * FIELD.farL
-  const farR  = W * FIELD.farR
-  const nearL = W * FIELD.nearL
-  const nearR = W * FIELD.nearR
-  const leftX  = farL + (nearL - farL) * fy
-  const rightX = farR + (nearR - farR) * fy
-  return {
-    x: leftX + fx * (rightX - leftX),
-    y: farY  + (nearY - farY) * fy,
-  }
-}
-
-// ── 透視縮放（fy=0 遠端小，fy=1 近端大）──────────────────
-function _fieldScale(fy) {
-  return 0.50 + fy * 0.65
-}
 
 export class BattleScene {
   constructor(canvas, ctx, gameState, onVictory, onDefeat) {
@@ -55,96 +29,101 @@ export class BattleScene {
     this.onVictory = onVictory
     this.onDefeat  = onDefeat
 
-    this.animId  = null
-    this.t       = 0
-    this.lastTs  = 0
-    this._loop   = this._loop.bind(this)
+    this.animId = null
+    this.t      = 0
+    this.lastTs = 0
+    this._loop  = this._loop.bind(this)
+    this.paused = false
+    this.done   = false
 
-    // 章節 / 波次
-    this.chapterIdx = (gameState.chapterIdx ?? 0)
-    this.waveIdx    = (gameState.waveIdx    ?? 0)
+    this.chapterIdx = gameState.chapterIdx ?? 0
+    this.waveIdx    = gameState.waveIdx    ?? 0
 
-    // 生成敵人並賦予等角位置
     const W = canvas.width
     const H = canvas.height
-    const rawEnemies = generateWaveEnemies(this.chapterIdx, this.waveIdx)
-    const posCount   = Math.min(rawEnemies.length, ENEMY_POSITIONS.length - 1)
-    const posSet     = ENEMY_POSITIONS[posCount]
+    this.W = W
+    this.H = H
 
+    const battleH  = H - TOP_H - DECK_H
+    this.groundY   = TOP_H + battleH * GROUND_RATIO
+
+    // 生成敵人，指定橫版位置
+    const rawEnemies = generateWaveEnemies(this.chapterIdx, this.waveIdx)
+    const posCount   = Math.min(rawEnemies.length, ENEMY_FX.length - 1)
+    const xSet       = ENEMY_FX[posCount]
     rawEnemies.forEach((e, i) => {
-      const pos = posSet[i] || { fx: 0.60 + (i % 3) * 0.10, fy: 0.30 + (i % 2) * 0.25 }
-      e.fx   = pos.fx
-      e.fy   = pos.fy
-      const sc = _fieldScale(pos.fy)
-      const sp = _fieldToScreen(pos.fx, pos.fy, W, H)
-      e.x    = sp.x
-      e.y    = sp.y
-      e.size = Math.round((e.size || 48) * sc)
+      e.x    = W * (xSet[i] ?? (0.55 + (i % 4) * 0.10))
+      e.y    = this.groundY
+      e.size = e.size || 48
     })
 
-    // 建立戰鬥狀態
     this.bs = createBattleState(gameState.hero, rawEnemies, gameState.cardStars || {})
 
-    // 玩家等角位置（左近側）
-    this.playerFx = 0.12
-    this.playerFy = 0.72
-    const pSp     = _fieldToScreen(this.playerFx, this.playerFy, W, H)
-    this.playerX  = pSp.x
-    this.playerY  = pSp.y
+    this.playerX = W * 0.18
+    this.playerY = this.groundY
 
-    // 攻擊計時
     this.attackInterval = Math.round(70 / (gameState.hero?.spd || 1.0))
     this.attackTimer    = 0
     this.phase          = 'player_turn'
 
-    // 視覺浮動文字
-    this.floats = []
-
-    // 震動
+    this.floats     = []
     this.shakeTarget = null
     this.shakeTimer  = 0
+    this.endTimer    = 0
+    this.cardBanner  = null
+    this.bannerLife  = 120
 
-    // 結束延遲
-    this.endTimer = 0
+    this.clouds = _makeclouds(W, H)
 
-    // 卡牌提示
-    this.cardBanner = null
+    // 暫停按鈕區域
+    this.pauseBtn = { x: W - 52, y: 11, w: 42, h: 34 }
 
-    // 開場章節橫幅
-    this.bannerLife = 120
-
-    this.lastResult = null
+    this._onClick = this._onClick.bind(this)
+    canvas.addEventListener('click', this._onClick)
   }
 
-  start() {
-    this.animId = requestAnimationFrame(this._loop)
-  }
+  start() { this.animId = requestAnimationFrame(this._loop) }
 
   stop() {
     if (this.animId) { cancelAnimationFrame(this.animId); this.animId = null }
+    this.canvas.removeEventListener('click', this._onClick)
+  }
+
+  destroy() { this.canvas.removeEventListener('click', this._onClick) }
+
+  _onClick(e) {
+    const rect   = this.canvas.getBoundingClientRect()
+    const scaleX = this.canvas.width  / rect.width
+    const scaleY = this.canvas.height / rect.height
+    const x = (e.clientX - rect.left) * scaleX
+    const y = (e.clientY - rect.top)  * scaleY
+    const b = this.pauseBtn
+    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+      this.paused = !this.paused
+    }
   }
 
   // ─── 主迴圈 ──────────────────────────────────────────────
   _loop(ts) {
     const dt = Math.min((ts - this.lastTs) / 1000, 0.05)
-    this.t      += dt
-    this.lastTs  = ts
-    this._update(dt)
+    this.lastTs = ts
+    if (!this.paused) { this.t += dt; this._update(dt) }
     this._draw()
-    if (!this.done) {
-      this.animId = requestAnimationFrame(this._loop)
-    }
+    if (!this.done) this.animId = requestAnimationFrame(this._loop)
   }
 
   _update(dt) {
     const state = this.bs
 
+    // 雲朵漂移
+    for (const c of this.clouds) {
+      c.x -= c.spd * dt
+      if (c.x + c.w < 0) c.x = this.W + c.w
+    }
+
     // 浮動文字
     this.floats = this.floats.filter(f => f.life > 0)
-    for (const f of this.floats) {
-      f.y    -= 1.5 * dt * 60
-      f.life -= dt * 60
-    }
+    for (const f of this.floats) { f.y -= 1.5 * dt * 60; f.life -= dt * 60 }
 
     // 卡牌橫幅
     if (this.cardBanner) {
@@ -158,7 +137,7 @@ export class BattleScene {
     // 開場倒計時
     if (this.bannerLife > 0) { this.bannerLife -= dt * 60; return }
 
-    // 戰鬥結束等待
+    // 戰鬥結束
     if (this.phase === 'end') {
       this.endTimer -= dt * 60
       if (this.endTimer <= 0) {
@@ -172,11 +151,9 @@ export class BattleScene {
     // 攻擊計時
     this.attackTimer += dt * 60
     if (this.phase === 'player_turn' && this.attackTimer >= this.attackInterval) {
-      this.attackTimer = 0
-      this._doPlayerTurn()
+      this.attackTimer = 0; this._doPlayerTurn()
     } else if (this.phase === 'enemy_turn' && this.attackTimer >= this.attackInterval) {
-      this.attackTimer = 0
-      this._doEnemyTurn()
+      this.attackTimer = 0; this._doEnemyTurn()
     }
   }
 
@@ -185,26 +162,17 @@ export class BattleScene {
     const result = playerAttack(state)
     if (!result) { this.phase = 'player_turn'; return }
 
-    const { damage, isCrit, target, extraDamage } = result
-
-    this._addFloat(target.x, target.y - target.size * 0.6,
+    const { damage, isCrit, target } = result
+    this._addFloat(target.x, target.y - target.size - 10,
       isCrit ? '暴擊！' + damage : '-' + damage,
-      isCrit ? '#ffd700' : '#ff8888')
+      isCrit ? '#ffd700' : '#ff8888',
+      isCrit ? 22 : 18)
 
-    if (extraDamage > 0) {
-      this._addFloat(target.x + 20, target.y - target.size * 0.9, '+' + extraDamage, '#ffcc44')
-    }
-
-    this.shakeTarget = 'enemy'
-    this.shakeTimer  = 10
-
+    this.shakeTarget = 'enemy'; this.shakeTimer = 10
     for (const eff of state.effects) this._showCardBanner(eff.text, eff.color)
     state.effects.length = 0
 
-    if (target.hp <= 0) {
-      this._addFloat(target.x, target.y - target.size * 1.0, '擊倒！', '#00e676')
-    }
-
+    if (target.hp <= 0) this._addFloat(target.x, target.y - target.size - 30, '擊倒！', '#00e676', 20)
     const end = checkBattleEnd(state)
     if (end) { this._endBattle(); return }
     this.phase = 'enemy_turn'
@@ -217,14 +185,12 @@ export class BattleScene {
 
     for (const { damage } of results) {
       this._addFloat(
-        this.playerX + (Math.random() - 0.5) * 25,
+        this.playerX + (Math.random() - 0.5) * 20,
         this.playerY - 70,
-        '-' + damage, '#ff5555')
+        '-' + damage, '#ff5555', 18)
     }
 
-    this.shakeTarget = 'player'
-    this.shakeTimer  = 10
-
+    this.shakeTarget = 'player'; this.shakeTimer = 10
     for (const eff of state.effects) this._showCardBanner(eff.text, eff.color)
     state.effects.length = 0
 
@@ -234,375 +200,276 @@ export class BattleScene {
   }
 
   _endBattle() {
-    this.phase    = 'end'
-    this.endTimer = 90
-    this.done     = false
+    this.phase = 'end'; this.endTimer = 90; this.done = false
     const msg = this.bs.result === 'victory' ? '勝利！' : '陣亡...'
     const col = this.bs.result === 'victory' ? '#ffd700' : '#ff5555'
-    this._addFloat(this.canvas.width / 2, this.canvas.height * 0.45, msg, col, 80)
+    this._addFloat(this.W / 2, this.H * 0.45, msg, col, 80)
   }
 
-  // ─── 繪圖 ────────────────────────────────────────────────
+  // ─── 繪圖主函式 ──────────────────────────────────────────
   _draw() {
-    const ctx   = this.ctx
-    const W     = this.canvas.width
-    const H     = this.canvas.height
-    const state = this.bs
+    const ctx = this.ctx
+    const W   = this.W
+    const H   = this.H
 
-    // 等角地板
-    this._drawFloor(ctx, W, H)
+    // 清底
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, W, H)
 
-    // 開場章節標題
+    this._drawBg(ctx, W, H)
+    this._drawGround(ctx, W, H)
+
     if (this.bannerLife > 0) {
-      this._drawOpenBanner(W, H)
+      this._drawOpenBanner(ctx, W, H)
       return
     }
 
-    // 波次資訊板（頂部）
-    this._drawWavePanel(ctx, W, H)
-
-    // 玩家 HP 條（牌組欄上方，不被遮住）
-    // 牌組欄從 H - 54 開始，HP 條固定在其上方留 8px 間距
-    const deckBarY = H - 54
-    const pShakeX = (this.shakeTarget === 'player' && this.shakeTimer > 0)
-      ? Math.sin(this.shakeTimer * 1.4) * 6 : 0
-    drawHpBar(ctx, 10 + pShakeX, deckBarY - 32, 180, 24,
-      state.player.hp, state.player.maxHp,
-      state.player.nameZh || state.player.name, '#4fc3f7')
-
-    const eShakeX = (this.shakeTarget === 'enemy' && this.shakeTimer > 0)
-      ? Math.sin(this.shakeTimer * 1.4) * 6 : 0
-
-    // 依 fy 深度排序（遠的先畫，近的後畫壓在上面）
-    const drawList = []
-    for (const e of state.enemies) {
-      if (e.hp > 0) drawList.push({ kind: 'enemy', e, fy: e.fy })
-    }
-    drawList.push({ kind: 'player', fy: this.playerFy })
-    drawList.sort((a, b) => a.fy - b.fy)
-
-    for (const item of drawList) {
-      if (item.kind === 'player') {
-        const sc = _fieldScale(this.playerFy)
-        this._drawPlayer(ctx, this.playerX + pShakeX, this.playerY, sc)
-      } else {
-        const e = item.e
-        this._drawEnemy(ctx, e, e.x + eShakeX)
-        drawHpBar(ctx,
-          e.x + eShakeX - e.size * 0.65,
-          e.y - e.size - 22,
-          e.size * 1.3, 16,
-          e.hp, e.maxHp,
-          e.nameZh || e.name,
-          e.isBoss ? '#ff6b6b' : T.slime)
-      }
-    }
-
-    // 牌組（底部）
+    this._drawTopBar(ctx, W, H)
     this._drawDeckBar(ctx, W, H)
 
-    // 卡牌橫幅提示
+    // 震動偏移
+    const pSX = (this.shakeTarget === 'player' && this.shakeTimer > 0)
+      ? Math.sin(this.shakeTimer * 1.4) * 5 : 0
+    const eSX = (this.shakeTarget === 'enemy' && this.shakeTimer > 0)
+      ? Math.sin(this.shakeTimer * 1.4) * 5 : 0
+
+    // 玩家角色
+    this._drawPlayerChar(ctx, this.playerX + pSX, this.playerY)
+
+    // 敵人
+    const state = this.bs
+    for (const e of state.enemies) {
+      if (e.hp <= 0) continue
+      this._drawEnemyChar(ctx, e, e.x + eSX, e.y)
+      drawHpBar(ctx,
+        e.x + eSX - e.size * 0.7,
+        e.y - e.size - 24,
+        e.size * 1.4, 14,
+        e.hp, e.maxHp,
+        e.nameZh || e.name,
+        e.isBoss ? '#ff6b6b' : T.slime)
+    }
+
+    // 卡牌橫幅
     if (this.cardBanner) this._drawCardBanner(ctx, W, H)
 
     // 浮動文字
     for (const f of this.floats) {
-      const alpha = Math.min(1, f.life / 30)
-      ctx.globalAlpha = alpha
+      ctx.globalAlpha = Math.min(1, f.life / 30)
       ctx.font        = 'bold ' + (f.size || 18) + 'px sans-serif'
       ctx.fillStyle   = f.color
       ctx.textAlign   = 'center'
-      ctx.shadowColor = '#000'
-      ctx.shadowBlur  = 4
+      ctx.shadowColor = '#000'; ctx.shadowBlur = 4
       ctx.fillText(f.text, f.x, f.y)
-      ctx.shadowBlur  = 0
-      ctx.globalAlpha = 1
+      ctx.shadowBlur = 0; ctx.globalAlpha = 1
+    }
+
+    // 暫停面板
+    if (this.paused) this._drawPauseOverlay(ctx, W, H)
+  }
+
+  // ─── 天空背景 ────────────────────────────────────────────
+  _drawBg(ctx, W, H) {
+    const gY = this.groundY
+
+    // 天空漸層
+    const sky = ctx.createLinearGradient(0, TOP_H, 0, gY)
+    sky.addColorStop(0, '#5ab4f0')
+    sky.addColorStop(1, '#aadcf8')
+    ctx.fillStyle = sky
+    ctx.fillRect(0, TOP_H, W, gY - TOP_H)
+
+    // 遠山輪廓
+    ctx.fillStyle = 'rgba(90,170,60,0.38)'
+    ctx.beginPath(); ctx.moveTo(0, gY)
+    const steps = 8
+    for (let i = 0; i <= steps; i++) {
+      const mx = (W / steps) * i
+      const bump = 28 + Math.sin(mx * 0.013 + 1.4) * 22
+      ctx.lineTo(mx, gY - bump)
+    }
+    ctx.lineTo(W, gY); ctx.closePath(); ctx.fill()
+
+    // 雲朵
+    ctx.fillStyle = 'rgba(255,255,255,0.88)'
+    for (const c of this.clouds) {
+      ctx.beginPath()
+      ctx.ellipse(c.x,              c.y,              c.w * 0.55, c.h * 0.55, 0, 0, Math.PI * 2)
+      ctx.ellipse(c.x + c.w * 0.30, c.y - c.h * 0.2, c.w * 0.42, c.h * 0.42, 0, 0, Math.PI * 2)
+      ctx.ellipse(c.x - c.w * 0.28, c.y - c.h * 0.1, c.w * 0.35, c.h * 0.35, 0, 0, Math.PI * 2)
+      ctx.fill()
     }
   }
 
-  // ─── 等角地板 ────────────────────────────────────────────
-  _drawFloor(ctx, W, H) {
-    const farY  = H * FIELD.farY
-    const nearY = H * FIELD.nearY
-    const farL  = W * FIELD.farL
-    const farR  = W * FIELD.farR
-    const nearL = W * FIELD.nearL
-    const nearR = W * FIELD.nearR
+  // ─── 地面 ────────────────────────────────────────────────
+  _drawGround(ctx, W, H) {
+    const gY = this.groundY
 
-    // ── 先整張畫布填滿深色，避免漏出前一場景 ────────────────
-    ctx.fillStyle = '#0a0e1a'
-    ctx.fillRect(0, 0, W, H)
+    // 草地帶
+    const grass = ctx.createLinearGradient(0, gY, 0, gY + 22)
+    grass.addColorStop(0, '#6abf40')
+    grass.addColorStop(1, '#4e9a2e')
+    ctx.fillStyle = grass
+    ctx.fillRect(0, gY, W, 22)
 
-    // ── 梯形左右兩側空白區填色 ───────────────────────────────
-    ctx.fillStyle = '#0a0e1a'
-    ctx.beginPath()
-    ctx.moveTo(0, farY); ctx.lineTo(farL, farY)
-    ctx.lineTo(nearL, nearY); ctx.lineTo(0, nearY)
-    ctx.closePath(); ctx.fill()
+    // 泥土
+    const dirt = ctx.createLinearGradient(0, gY + 22, 0, H - DECK_H)
+    dirt.addColorStop(0, '#8b5a2b')
+    dirt.addColorStop(1, '#5c3317')
+    ctx.fillStyle = dirt
+    ctx.fillRect(0, gY + 22, W, H - DECK_H - gY - 22)
 
-    ctx.beginPath()
-    ctx.moveTo(W, farY); ctx.lineTo(farR, farY)
-    ctx.lineTo(nearR, nearY); ctx.lineTo(W, nearY)
-    ctx.closePath(); ctx.fill()
-
-    // 天空（地板上方）
-    const skyG = ctx.createLinearGradient(0, 0, 0, farY + 20)
-    skyG.addColorStop(0, '#0a0e1a')
-    skyG.addColorStop(1, '#172040')
-    ctx.fillStyle = skyG
-    ctx.fillRect(0, 0, W, farY + 20)
-
-    // 地板梯形填色
-    const floorG = ctx.createLinearGradient(0, farY, 0, nearY)
-    floorG.addColorStop(0,   '#1a3520')
-    floorG.addColorStop(0.5, '#22402a')
-    floorG.addColorStop(1,   '#162c1a')
-    ctx.fillStyle = floorG
-    ctx.beginPath()
-    ctx.moveTo(farL,  farY)
-    ctx.lineTo(farR,  farY)
-    ctx.lineTo(nearR, nearY)
-    ctx.lineTo(nearL, nearY)
-    ctx.closePath()
-    ctx.fill()
-
-    // 網格線 — 深度方向（縱線）
-    ctx.strokeStyle = 'rgba(80,180,60,0.16)'
-    ctx.lineWidth   = 1
-    for (let i = 0; i <= 7; i++) {
-      const t  = i / 7
-      const x1 = farL  + t * (farR  - farL)
-      const x2 = nearL + t * (nearR - nearL)
+    // 泥土紋理
+    ctx.strokeStyle = 'rgba(0,0,0,0.10)'; ctx.lineWidth = 1
+    for (let y = gY + 38; y < H - DECK_H; y += 18) {
       ctx.beginPath()
-      ctx.moveTo(x1, farY)
-      ctx.lineTo(x2, nearY)
+      ctx.moveTo(0, y + Math.sin(y * 0.31) * 2)
+      ctx.lineTo(W, y + Math.sin(y * 0.31 + 1) * 2)
       ctx.stroke()
     }
-
-    // 網格線 — 橫向（透視收縮）
-    for (let j = 1; j <= 5; j++) {
-      const t  = j / 6
-      const sy = farY + (nearY - farY) * t
-      const lx = farL + (nearL - farL) * t
-      const rx = farR + (nearR - farR) * t
-      ctx.beginPath()
-      ctx.moveTo(lx, sy)
-      ctx.lineTo(rx, sy)
-      ctx.stroke()
-    }
-
-    // 地板輪廓邊線
-    ctx.strokeStyle = 'rgba(100,210,80,0.28)'
-    ctx.lineWidth   = 1.5
-    ctx.beginPath(); ctx.moveTo(farL,  farY);  ctx.lineTo(nearL, nearY); ctx.stroke()
-    ctx.beginPath(); ctx.moveTo(farR,  farY);  ctx.lineTo(nearR, nearY); ctx.stroke()
-    ctx.beginPath(); ctx.moveTo(nearL, nearY); ctx.lineTo(nearR, nearY); ctx.stroke()
-
-    // 近端地面輝光（暗橙色燈光感）
-    const glowG = ctx.createLinearGradient(0, nearY - 20, 0, nearY + 30)
-    glowG.addColorStop(0, 'rgba(255,150,50,0.0)')
-    glowG.addColorStop(1, 'rgba(255,120,30,0.12)')
-    ctx.fillStyle = glowG
-    ctx.fillRect(0, nearY - 20, W, 50)
-
-    // 遠端霧氣遮擋
-    const fogG = ctx.createLinearGradient(0, farY - 50, 0, farY + 40)
-    fogG.addColorStop(0, 'rgba(10,14,26,1.0)')
-    fogG.addColorStop(1, 'rgba(10,14,26,0.0)')
-    ctx.fillStyle = fogG
-    ctx.fillRect(0, farY - 50, W, 90)
-
-    // UI 底部區域
-    const uiG = ctx.createLinearGradient(0, nearY, 0, H)
-    uiG.addColorStop(0, '#0e1a0b')
-    uiG.addColorStop(1, '#060c04')
-    ctx.fillStyle = uiG
-    ctx.fillRect(0, nearY, W, H - nearY)
-
-    // 左右牆壁暗影（增加縱深感）
-    const wallL = ctx.createLinearGradient(0, 0, W * 0.18, 0)
-    wallL.addColorStop(0, 'rgba(0,0,0,0.35)')
-    wallL.addColorStop(1, 'rgba(0,0,0,0.0)')
-    ctx.fillStyle = wallL
-    ctx.fillRect(0, farY, W * 0.18, nearY - farY)
-
-    const wallR = ctx.createLinearGradient(W, 0, W * 0.82, 0)
-    wallR.addColorStop(0, 'rgba(0,0,0,0.25)')
-    wallR.addColorStop(1, 'rgba(0,0,0,0.0)')
-    ctx.fillStyle = wallR
-    ctx.fillRect(W * 0.82, farY, W * 0.18, nearY - farY)
   }
 
-  // ─── 開場章節標題 ────────────────────────────────────────
-  _drawOpenBanner(W, H) {
-    const ctx   = this.ctx
-    const alpha = Math.min(1, this.bannerLife / 30) * Math.min(1, (120 - this.bannerLife) / 30 + 0.3)
-    ctx.globalAlpha = alpha
+  // ─── 頂部 UI 列 ──────────────────────────────────────────
+  _drawTopBar(ctx, W, H) {
+    const state = this.bs
 
-    ctx.fillStyle = 'rgba(0,0,0,0.55)'
-    ctx.fillRect(0, H * 0.38, W, 100)
+    ctx.fillStyle = 'rgba(0,0,0,0.50)'
+    ctx.fillRect(0, 0, W, TOP_H)
 
-    const chapter = CHAPTERS[this.chapterIdx]
-    ctx.fillStyle = T.gold
-    ctx.font      = 'bold 28px sans-serif'
-    ctx.textAlign = 'center'
-    ctx.fillText('第 ' + (this.chapterIdx + 1) + ' 章', W / 2, H * 0.38 + 38)
+    // 玩家 HP 條（左）
+    drawHpBar(ctx, 8, 12, W * 0.46, 22,
+      state.player.hp, state.player.maxHp,
+      state.player.nameZh || state.player.name, '#4fc3f7')
 
-    ctx.fillStyle = T.textWhite
-    ctx.font      = '20px sans-serif'
-    ctx.fillText(chapter ? chapter.nameZh : '', W / 2, H * 0.38 + 68)
-
-    ctx.globalAlpha = 1
-  }
-
-  // ─── 波次資訊板 ──────────────────────────────────────────
-  _drawWavePanel(ctx, W, H) {
+    // 波次標籤（中）
     const label = getWaveLabel(this.chapterIdx, this.waveIdx)
-    ctx.fillStyle = 'rgba(0,0,40,0.55)'
-    rrect(ctx, W * 0.28, 8, W * 0.44, 32, 8); ctx.fill()
+    ctx.fillStyle = 'rgba(0,0,40,0.65)'
+    rrect(ctx, W * 0.44, 10, W * 0.30, 26, 8); ctx.fill()
     ctx.fillStyle = T.textWhite
-    ctx.font      = 'bold 14px sans-serif'
+    ctx.font = 'bold 13px sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText(label, W / 2, 29)
+    ctx.fillText(label, W * 0.59, 28)
+
+    // 暫停按鈕（右）
+    const btn = this.pauseBtn
+    ctx.fillStyle = 'rgba(255,255,255,0.18)'
+    rrect(ctx, btn.x, btn.y, btn.w, btn.h, 8); ctx.fill()
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1.5
+    rrect(ctx, btn.x, btn.y, btn.w, btn.h, 8); ctx.stroke()
+
+    // 暫停/繼續圖示
+    const bx = btn.x + btn.w / 2
+    const by = btn.y + btn.h / 2
+    ctx.fillStyle = '#fff'
+    if (this.paused) {
+      // ▶ 繼續圖示
+      ctx.beginPath()
+      ctx.moveTo(bx - 6, by - 9)
+      ctx.lineTo(bx + 9, by)
+      ctx.lineTo(bx - 6, by + 9)
+      ctx.closePath(); ctx.fill()
+    } else {
+      // ⏸ 暫停圖示
+      ctx.fillRect(bx - 8, by - 8, 5, 16)
+      ctx.fillRect(bx + 3, by - 8, 5, 16)
+    }
   }
 
-  // ─── 玩家（杯子角色）────────────────────────────────────
-  _drawPlayer(ctx, x, groundY, scale) {
-    if (scale === undefined) scale = 1
-
-    ctx.save()
-    ctx.translate(x, groundY)
-    ctx.scale(scale, scale)
-    ctx.translate(-x, -groundY)
-
-    const y    = groundY
-    const cupW = 48
-    const cupH = 58
-    const cupBW = 36
-    const topX = x - cupW / 2
-    const botX = x - cupBW / 2
-    const topY = y - cupH
-    const botY = y
+  // ─── 玩家角色 ────────────────────────────────────────────
+  _drawPlayerChar(ctx, x, groundY) {
+    const hero    = this.gameState.hero
+    const heroKey = 'hero_' + (hero?.id || 'knight')
+    const size    = 72
 
     // 影子
-    ctx.fillStyle = 'rgba(0,0,0,0.22)'
-    ctx.beginPath(); ctx.ellipse(x, y + 10, 26, 7, 0, 0, Math.PI * 2); ctx.fill()
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'
+    ctx.beginPath(); ctx.ellipse(x, groundY + 6, 22, 6, 0, 0, Math.PI * 2); ctx.fill()
 
-    const heroKey = 'hero_' + ((this.gameState.hero && this.gameState.hero.id) ? this.gameState.hero.id : 'knight')
-    SpriteManager.drawSprite(ctx, heroKey, x, y, 80, 100, () => {
-      const hero = this.gameState.hero
-      const c1   = (hero && hero.color)      ? hero.color      : T.heroBlue
-      const c2   = (hero && hero.colorDark)  ? hero.colorDark  : T.heroBlueShadow
+    SpriteManager.drawSprite(ctx, heroKey, x, groundY, size, size * 1.3, () => {
+      const c1 = hero?.color     || T.heroBlue
+      const c2 = hero?.colorDark || T.heroBlueShadow
+
+      const cupW = 44, cupH = 54, cupBW = 32
+      const topX = x - cupW / 2
+      const topY = groundY - cupH
 
       const g = ctx.createLinearGradient(topX, topY, topX + cupW, topY)
       g.addColorStop(0, c1); g.addColorStop(0.5, c1 + 'cc'); g.addColorStop(1, c2)
       ctx.fillStyle = g
       ctx.beginPath()
-      ctx.moveTo(topX, topY); ctx.lineTo(topX + cupW, topY)
-      ctx.lineTo(botX + cupBW, botY); ctx.lineTo(botX, botY)
+      ctx.moveTo(topX, topY)
+      ctx.lineTo(topX + cupW, topY)
+      ctx.lineTo(x + cupBW / 2, groundY)
+      ctx.lineTo(x - cupBW / 2, groundY)
       ctx.closePath(); ctx.fill()
 
-      ctx.fillStyle = 'rgba(255,255,255,0.22)'
-      ctx.beginPath()
-      ctx.moveTo(topX + 5, topY + 4); ctx.lineTo(topX + cupW * 0.45, topY + 4)
-      ctx.lineTo(botX + cupBW * 0.42, botY - 8); ctx.lineTo(botX + 5, botY - 8)
-      ctx.closePath(); ctx.fill()
+      ctx.strokeStyle = c2; ctx.lineWidth = 1.5; ctx.stroke()
 
-      const rimG = ctx.createLinearGradient(topX, topY, topX, topY + 10)
-      rimG.addColorStop(0, '#a0d8ff'); rimG.addColorStop(1, c2)
-      ctx.fillStyle = rimG
-      ctx.fillRect(topX - 3, topY - 5, cupW + 6, 12)
-
-      const eyeY = topY + cupH * 0.38
+      // 眼睛
       for (const ex of [x - 9, x + 9]) {
         ctx.fillStyle = '#fff'
-        ctx.beginPath(); ctx.ellipse(ex, eyeY, 6, 6, 0, 0, Math.PI * 2); ctx.fill()
-        ctx.fillStyle = '#1a3a7a'
-        ctx.beginPath(); ctx.ellipse(ex + 1, eyeY + 1, 3.5, 3.5, 0, 0, Math.PI * 2); ctx.fill()
-        ctx.fillStyle = '#fff'
-        ctx.beginPath(); ctx.arc(ex + 2, eyeY - 1, 1.5, 0, Math.PI * 2); ctx.fill()
+        ctx.beginPath(); ctx.ellipse(ex, topY + 18, 6, 7, 0, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = '#222'
+        ctx.beginPath(); ctx.ellipse(ex + 1, topY + 19, 3.5, 4, 0, 0, Math.PI * 2); ctx.fill()
       }
-      ctx.strokeStyle = '#1a3a7a'; ctx.lineWidth = 2
-      ctx.beginPath(); ctx.arc(x, eyeY + 13, 8, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke()
 
-      ctx.save()
-      ctx.translate(x + 32, y - 36)
-      ctx.rotate(-0.4)
-      ctx.fillStyle = '#d0e8f8'; ctx.fillRect(-2.5, -26, 5, 32)
-      ctx.strokeStyle = '#7799aa'; ctx.lineWidth = 1; ctx.strokeRect(-2.5, -26, 5, 32)
-      ctx.fillStyle = T.gold; ctx.fillRect(-8, 0, 16, 5)
-      ctx.fillStyle = T.woodMid; ctx.fillRect(-2, 5, 4, 12)
-      ctx.restore()
-
-      ctx.strokeStyle = c2; ctx.lineWidth = 2
-      ctx.beginPath()
-      ctx.moveTo(topX, topY); ctx.lineTo(topX + cupW, topY)
-      ctx.lineTo(botX + cupBW, botY); ctx.lineTo(botX, botY)
-      ctx.closePath(); ctx.stroke()
+      // 武器圖示
+      ctx.font = '18px serif'
+      ctx.textAlign = 'center'
+      ctx.fillText(hero?.weaponEmoji || '⚔️', x + cupW * 0.42, topY + 35)
     })
+  }
 
+  // ─── 敵人角色 ────────────────────────────────────────────
+  _drawEnemyChar(ctx, enemy, x, groundY) {
+    const size = enemy.size || 48
+    ctx.save()
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'
+    ctx.beginPath(); ctx.ellipse(x, groundY + 6, size * 0.45, 7, 0, 0, Math.PI * 2); ctx.fill()
+    if (enemy.isBoss) this._drawBoss(ctx, enemy, x, groundY, size)
+    else              this._drawEnemy(ctx, enemy, x, groundY, size)
     ctx.restore()
   }
 
-  // ─── 敵人 ────────────────────────────────────────────────
-  _drawEnemy(ctx, enemy, x) {
-    const size = enemy.size || 48
-    const y    = enemy.y || (this.canvas.height * 0.72)
-
-    ctx.fillStyle = 'rgba(0,0,0,0.18)'
-    ctx.beginPath(); ctx.ellipse(x, y + 8, size * 0.55, size * 0.15, 0, 0, Math.PI * 2); ctx.fill()
-
-    if (enemy.isBoss) {
-      this._drawBossEnemy(ctx, enemy, x, y, size)
-    } else {
-      this._drawNormalEnemy(ctx, enemy, x, y, size)
-    }
-  }
-
-  _drawNormalEnemy(ctx, enemy, x, y, size) {
+  _drawEnemy(ctx, enemy, x, groundY, size) {
     const enemyKey = 'enemy_' + (enemy.type || 'slime')
-    SpriteManager.drawSprite(ctx, enemyKey, x, y, size * 1.2, size * 1.2, () => {
+    SpriteManager.drawSprite(ctx, enemyKey, x, groundY, size * 1.2, size * 1.2, () => {
       const rg = ctx.createRadialGradient(
-        x - size * 0.2, y - size * 0.6, size * 0.1,
-        x,             y - size * 0.5, size * 0.8)
+        x - size * 0.2, groundY - size * 0.6, size * 0.1,
+        x,              groundY - size * 0.5, size * 0.8)
       rg.addColorStop(0,   _lighten(enemy.color || '#888', 40))
       rg.addColorStop(0.7, enemy.color || '#888')
-      rg.addColorStop(1,   _darken(enemy.color || '#888', 30))
+      rg.addColorStop(1,   _darken(enemy.color  || '#888', 30))
       ctx.fillStyle = rg
-      ctx.beginPath(); ctx.arc(x, y - size * 0.55, size * 0.55, 0, Math.PI * 2); ctx.fill()
-      ctx.strokeStyle = _darken(enemy.color || '#888', 40); ctx.lineWidth = 2
-      ctx.beginPath(); ctx.arc(x, y - size * 0.55, size * 0.55, 0, Math.PI * 2); ctx.stroke()
+      ctx.beginPath(); ctx.arc(x, groundY - size * 0.55, size * 0.55, 0, Math.PI * 2); ctx.fill()
+      ctx.strokeStyle = _darken(enemy.color || '#888', 40); ctx.lineWidth = 2; ctx.stroke()
 
-      const ey = y - size * 0.6
+      const ey = groundY - size * 0.6
       for (const ex of [x - size * 0.22, x + size * 0.22]) {
         ctx.fillStyle = '#fff'
         ctx.beginPath(); ctx.ellipse(ex, ey, size * 0.12, size * 0.12, 0, 0, Math.PI * 2); ctx.fill()
         ctx.fillStyle = '#200'
         ctx.beginPath(); ctx.ellipse(ex + 1, ey + 1, size * 0.07, size * 0.07, 0, 0, Math.PI * 2); ctx.fill()
       }
-
-      ctx.font      = (size * 0.5) + 'px serif'
-      ctx.textAlign = 'center'
-      ctx.fillText(enemy.emoji || '👾', x, y - size * 0.3)
+      ctx.font = (size * 0.48) + 'px serif'; ctx.textAlign = 'center'
+      ctx.fillText(enemy.emoji || '👾', x, groundY - size * 0.28)
     })
   }
 
-  _drawBossEnemy(ctx, enemy, x, y, size) {
-    const bw = size * 1.1
-    const bh = size * 1.3
+  _drawBoss(ctx, enemy, x, groundY, size) {
+    const bw = size * 1.1, bh = size * 1.3
     const enemyKey = 'enemy_' + (enemy.type || 'slime')
-    SpriteManager.drawSprite(ctx, enemyKey, x, y, bw * 1.4, (bh + 30) * 1.2, () => {
-      const rg = ctx.createRadialGradient(x, y - bh * 0.5, bh * 0.05, x, y - bh * 0.5, bh * 0.8)
+    SpriteManager.drawSprite(ctx, enemyKey, x, groundY, bw * 1.4, (bh + 30) * 1.2, () => {
+      const rg = ctx.createRadialGradient(x, groundY - bh * 0.5, bh * 0.05, x, groundY - bh * 0.5, bh * 0.8)
       rg.addColorStop(0, _lighten(enemy.color || '#c00', 40))
       rg.addColorStop(1, _darken(enemy.color  || '#c00', 20))
       ctx.fillStyle = rg
       ctx.beginPath()
-      ctx.moveTo(x - bw / 2, y - bh)
-      ctx.lineTo(x + bw / 2, y - bh)
-      ctx.lineTo(x + bw * 0.35, y)
-      ctx.lineTo(x - bw * 0.35, y)
+      ctx.moveTo(x - bw / 2, groundY - bh); ctx.lineTo(x + bw / 2, groundY - bh)
+      ctx.lineTo(x + bw * 0.35, groundY);   ctx.lineTo(x - bw * 0.35, groundY)
       ctx.closePath(); ctx.fill()
 
-      const crownY = y - bh - 14
+      const crownY = groundY - bh - 14
       ctx.fillStyle = T.gold
       ctx.beginPath()
       ctx.moveTo(x - bw * 0.4,  crownY + 16)
@@ -615,34 +482,25 @@ export class BattleScene {
       ctx.closePath(); ctx.fill()
       ctx.strokeStyle = T.goldDark; ctx.lineWidth = 1.5; ctx.stroke()
 
-      const ey = y - bh * 0.58
-      for (const ex of [x - bw * 0.2, x + bw * 0.2]) {
-        ctx.fillStyle = '#ff0'
-        ctx.beginPath(); ctx.ellipse(ex, ey, bw * 0.1, bw * 0.1, 0, 0, Math.PI * 2); ctx.fill()
-        ctx.fillStyle = '#600'
-        ctx.beginPath(); ctx.ellipse(ex, ey + 1, bw * 0.06, bw * 0.06, 0, 0, Math.PI * 2); ctx.fill()
-      }
-
-      ctx.font      = (size * 0.4) + 'px serif'
-      ctx.textAlign = 'center'
-      ctx.fillText(enemy.emoji || '👑', x, y - bh * 0.25)
+      ctx.font = (size * 0.4) + 'px serif'; ctx.textAlign = 'center'
+      ctx.fillText(enemy.emoji || '👑', x, groundY - bh * 0.25)
     })
   }
 
-  // ─── 牌組顯示（底部）────────────────────────────────────
+  // ─── 底部牌組欄 ──────────────────────────────────────────
   _drawDeckBar(ctx, W, H) {
     const deck = this.bs.player.deck || []
     if (deck.length === 0) return
 
-    const barH = 52
-    const barY = H - barH - 2
-    ctx.fillStyle = 'rgba(0,10,40,0.72)'
-    rrect(ctx, 0, barY, W, barH + 4, 0); ctx.fill()
+    const barY = H - DECK_H
+    ctx.fillStyle = 'rgba(0,10,40,0.82)'
+    ctx.fillRect(0, barY, W, DECK_H)
+    ctx.strokeStyle = 'rgba(74,168,255,0.3)'; ctx.lineWidth = 1
+    ctx.beginPath(); ctx.moveTo(0, barY); ctx.lineTo(W, barY); ctx.stroke()
 
-    const cardW = 46
-    const gap   = 6
+    const cardW = 46, gap = 6
     const total = deck.length * (cardW + gap) - gap
-    let   cx    = (W - total) / 2
+    let cx = (W - total) / 2
 
     ctx.textAlign = 'center'
     for (const cardId of deck) {
@@ -651,40 +509,188 @@ export class BattleScene {
       const rCol = card.group === 'hero' ? '#d4a017' : '#4a90d9'
 
       ctx.fillStyle = rCol + '33'
-      rrect(ctx, cx, barY + 4, cardW, barH - 8, 6); ctx.fill()
+      rrect(ctx, cx, barY + 6, cardW, DECK_H - 12, 6); ctx.fill()
       ctx.strokeStyle = rCol; ctx.lineWidth = 1.5
-      rrect(ctx, cx, barY + 4, cardW, barH - 8, 6); ctx.stroke()
+      rrect(ctx, cx, barY + 6, cardW, DECK_H - 12, 6); ctx.stroke()
 
       ctx.font = '18px serif'
-      ctx.fillText(card.icon || '?', cx + cardW / 2, barY + 24)
-
-      ctx.font      = '9px sans-serif'
-      ctx.fillStyle = rCol
-      ctx.fillText((card.nameZh || card.name).slice(0, 4), cx + cardW / 2, barY + 38)
+      ctx.fillText(card.icon || '?', cx + cardW / 2, barY + 26)
+      ctx.font = '9px sans-serif'; ctx.fillStyle = rCol
+      ctx.fillText((card.nameZh || card.name).slice(0, 4), cx + cardW / 2, barY + 41)
 
       cx += cardW + gap
     }
   }
 
-  // ─── 卡牌橫幅提示 ────────────────────────────────────────
+  // ─── 開場橫幅 ────────────────────────────────────────────
+  _drawOpenBanner(ctx, W, H) {
+    const alpha = Math.min(1, this.bannerLife / 30) * Math.min(1, (120 - this.bannerLife) / 30 + 0.3)
+    ctx.globalAlpha = alpha
+
+    ctx.fillStyle = 'rgba(0,0,0,0.60)'
+    ctx.fillRect(0, H * 0.38, W, 100)
+
+    const chapter = CHAPTERS[this.chapterIdx]
+    ctx.fillStyle = T.gold; ctx.font = 'bold 28px sans-serif'; ctx.textAlign = 'center'
+    ctx.fillText('第 ' + (this.chapterIdx + 1) + ' 章', W / 2, H * 0.38 + 38)
+    ctx.fillStyle = T.textWhite; ctx.font = '20px sans-serif'
+    ctx.fillText(chapter ? chapter.nameZh : '', W / 2, H * 0.38 + 68)
+
+    ctx.globalAlpha = 1
+  }
+
+  // ─── 卡牌觸發橫幅 ────────────────────────────────────────
   _drawCardBanner(ctx, W, H) {
     const banner = this.cardBanner
     const alpha  = Math.min(1, banner.life / 20)
     ctx.globalAlpha = alpha
-
     ctx.fillStyle = banner.color + '33'
-    rrect(ctx, W * 0.1, H * 0.44, W * 0.8, 34, 8); ctx.fill()
+    rrect(ctx, W * 0.1, H * 0.42, W * 0.8, 34, 8); ctx.fill()
     ctx.strokeStyle = banner.color; ctx.lineWidth = 1.5
-    rrect(ctx, W * 0.1, H * 0.44, W * 0.8, 34, 8); ctx.stroke()
-
-    ctx.fillStyle = banner.color
-    ctx.font      = 'bold 14px sans-serif'
-    ctx.textAlign = 'center'
-    ctx.fillText(banner.text, W / 2, H * 0.44 + 22)
+    rrect(ctx, W * 0.1, H * 0.42, W * 0.8, 34, 8); ctx.stroke()
+    ctx.fillStyle = banner.color; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center'
+    ctx.fillText(banner.text, W / 2, H * 0.42 + 22)
     ctx.globalAlpha = 1
   }
 
-  // ─── 輔助 ──────────────────────────────────────────  // ─── 輔助 ────────────────────────────────────────────────
+  // ─── 暫停覆蓋面板 ────────────────────────────────────────
+  _drawPauseOverlay(ctx, W, H) {
+    const state = this.bs
+    const hero  = this.gameState.hero
+    const cards = this.gameState.cardStars || {}
+
+    // 半透明遮罩
+    ctx.fillStyle = 'rgba(0,0,0,0.68)'
+    ctx.fillRect(0, 0, W, H)
+
+    // 面板
+    const panW = W * 0.90
+    const panX = (W - panW) / 2
+    const panY = H * 0.07
+    const panH = H * 0.84
+    ctx.fillStyle = '#111e35'
+    rrect(ctx, panX, panY, panW, panH, 16); ctx.fill()
+    ctx.strokeStyle = T.panelBorder; ctx.lineWidth = 2
+    rrect(ctx, panX, panY, panW, panH, 16); ctx.stroke()
+
+    // 標題
+    ctx.fillStyle = T.gold; ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'center'
+    ctx.fillText('⏸  暫停', W / 2, panY + 34)
+    ctx.strokeStyle = 'rgba(74,168,255,0.25)'; ctx.lineWidth = 1
+    ctx.beginPath(); ctx.moveTo(panX + 16, panY + 46); ctx.lineTo(panX + panW - 16, panY + 46); ctx.stroke()
+
+    // ── 英雄數值 ──
+    const L = panX + 16
+    const R = panX + panW - 16
+
+    const baseAtk  = hero?.atk      || 0
+    const baseDef  = hero?.def      || 0
+    const baseCrit = hero?.crit     || 0.15
+    const baseCMul = hero?.critMult || 2.0
+
+    const curAtk  = state.player.atk      || baseAtk
+    const curDef  = state.player.def      || baseDef
+    const curCrit = state.player.crit     || baseCrit
+    const curCMul = state.player.critMult || baseCMul
+
+    const rows = [
+      { icon: '❤️', label: '生命值',  base: null,     cur: state.player.hp,  str: state.player.hp + ' / ' + state.player.maxHp },
+      { icon: '⚔️', label: '攻擊力',  base: baseAtk,  cur: curAtk  },
+      { icon: '🛡️', label: '防禦力',  base: baseDef,  cur: curDef  },
+      { icon: '🎯', label: '爆擊率',  base: baseCrit, cur: curCrit, pct: true },
+      { icon: '💥', label: '爆擊倍率',base: baseCMul, cur: curCMul, mult: true },
+    ]
+
+    let ry = panY + 54
+    const rowH = 36
+
+    // 欄標
+    ctx.fillStyle = T.textGray; ctx.font = '10px sans-serif'
+    ctx.textAlign = 'left';  ctx.fillText('基礎值', L + panW * 0.44, ry - 2)
+    ctx.textAlign = 'right'; ctx.fillText('目前值（含卡片加成）', R, ry - 2)
+
+    for (const row of rows) {
+      // 行底
+      ctx.fillStyle = 'rgba(255,255,255,0.04)'
+      rrect(ctx, L - 2, ry, panW - 28, rowH - 3, 6); ctx.fill()
+
+      // 標籤
+      ctx.fillStyle = T.textLight; ctx.font = '14px sans-serif'; ctx.textAlign = 'left'
+      ctx.fillText(row.icon + '  ' + row.label, L + 6, ry + 22)
+
+      // 基礎值
+      if (row.base !== null) {
+        let bStr = row.pct  ? Math.round(row.base * 100) + '%'
+                 : row.mult ? row.base.toFixed(1) + 'x'
+                 : String(row.base)
+        ctx.fillStyle = T.textGray; ctx.font = '12px sans-serif'
+        ctx.textAlign = 'left'
+        ctx.fillText(bStr, L + panW * 0.44, ry + 22)
+      }
+
+      // 目前值
+      let cStr = row.str  ? row.str
+               : row.pct  ? Math.round(row.cur * 100) + '%'
+               : row.mult ? row.cur.toFixed(1) + 'x'
+               : String(row.cur)
+      const boosted = row.base !== null && row.cur > row.base
+      ctx.fillStyle = boosted ? '#5eff9e' : '#ffffff'
+      ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'right'
+      ctx.fillText(cStr, R, ry + 22)
+
+      ry += rowH
+    }
+
+    // 分隔線
+    ry += 6
+    ctx.strokeStyle = 'rgba(74,168,255,0.25)'; ctx.lineWidth = 1
+    ctx.beginPath(); ctx.moveTo(L, ry); ctx.lineTo(R, ry); ctx.stroke()
+    ry += 14
+
+    // ── 本次取得的卡片 ──
+    ctx.fillStyle = T.gold; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left'
+    ctx.fillText('📦  本次取得的卡片', L, ry)
+    ry += 20
+
+    const cardIds = Object.keys(cards)
+    if (cardIds.length === 0) {
+      ctx.fillStyle = T.textGray; ctx.font = '12px sans-serif'; ctx.textAlign = 'left'
+      ctx.fillText('尚未取得卡片', L + 4, ry + 14)
+    } else {
+      const perRow = 3
+      const cw = (panW - 32) / perRow - 4
+
+      for (let ci = 0; ci < cardIds.length; ci++) {
+        const card  = getCardById(cardIds[ci])
+        const stars = cards[cardIds[ci]] || 1
+        if (!card) continue
+
+        const col2 = Math.floor(ci % perRow)
+        const row2 = Math.floor(ci / perRow)
+        const cx2  = L + col2 * (cw + 4)
+        const cy2  = ry + row2 * 48
+
+        const rCol = card.group === 'hero' ? '#d4a017' : '#4a90d9'
+        ctx.fillStyle = rCol + '22'
+        rrect(ctx, cx2, cy2, cw, 42, 6); ctx.fill()
+        ctx.strokeStyle = rCol + '88'; ctx.lineWidth = 1
+        rrect(ctx, cx2, cy2, cw, 42, 6); ctx.stroke()
+
+        ctx.font = '17px serif'; ctx.textAlign = 'center'
+        ctx.fillText(card.icon || '?', cx2 + cw / 2, cy2 + 18)
+        ctx.font = '9px sans-serif'; ctx.fillStyle = rCol
+        ctx.fillText((card.nameZh || card.name).slice(0, 5), cx2 + cw / 2, cy2 + 30)
+        ctx.fillStyle = T.gold; ctx.font = 'bold 9px sans-serif'
+        ctx.fillText('★'.repeat(stars), cx2 + cw / 2, cy2 + 40)
+      }
+    }
+
+    // 底部提示
+    ctx.fillStyle = 'rgba(255,255,255,0.30)'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'
+    ctx.fillText('再次點擊 ⏸ 繼續遊戲', W / 2, panY + panH - 12)
+  }
+
+  // ─── 輔助函式 ────────────────────────────────────────────
   _addFloat(x, y, text, color, size) {
     this.floats.push({ x, y, text, color, life: 60, size: size || 18 })
   }
@@ -694,18 +700,29 @@ export class BattleScene {
   }
 }
 
+// ── 模組輔助 ─────────────────────────────────────────────
+function _makeclouds(W, H) {
+  return Array.from({ length: 4 }, () => ({
+    x:   Math.random() * W,
+    y:   TOP_H + 16 + Math.random() * (H * 0.16),
+    w:   60 + Math.random() * 50,
+    h:   22 + Math.random() * 14,
+    spd: 8  + Math.random() * 10,
+  }))
+}
+
 function _lighten(hex, amt) {
   const n = parseInt(hex.replace('#', ''), 16)
-  const r = Math.min(255, ((n >> 16) & 0xff) + amt)
-  const g = Math.min(255, ((n >> 8)  & 0xff) + amt)
-  const b = Math.min(255, ((n)       & 0xff) + amt)
-  return 'rgb(' + r + ',' + g + ',' + b + ')'
+  return 'rgb(' +
+    Math.min(255, ((n >> 16) & 0xff) + amt) + ',' +
+    Math.min(255, ((n >> 8)  & 0xff) + amt) + ',' +
+    Math.min(255, ((n)       & 0xff) + amt) + ')'
 }
 
 function _darken(hex, amt) {
   const n = parseInt(hex.replace('#', ''), 16)
-  const r = Math.max(0, ((n >> 16) & 0xff) - amt)
-  const g = Math.max(0, ((n >> 8)  & 0xff) - amt)
-  const b = Math.max(0, ((n)       & 0xff) - amt)
-  return 'rgb(' + r + ',' + g + ',' + b + ')'
+  return 'rgb(' +
+    Math.max(0, ((n >> 16) & 0xff) - amt) + ',' +
+    Math.max(0, ((n >> 8)  & 0xff) - amt) + ',' +
+    Math.max(0, ((n)       & 0xff) - amt) + ')'
 }

@@ -3,6 +3,7 @@ import { HEROES }                                  from '../data/heroes.js'
 import { getCardById }                             from '../data/cards.js'
 import { T }                                       from '../utils/theme.js'
 import { drawSky, drawGround, drawBtn, rrect }     from '../utils/drawHelpers.js'
+import { SpriteManager }                           from '../game/SpriteManager.js'
 
 // 顯示資料（UI 專用，不放到 heroes.js 避免污染遊戲資料）
 const HERO_DISPLAY = {
@@ -163,9 +164,13 @@ export class HeroSelectScene {
       rrect(ctx, cardX, cy, 9, cardH, 14); ctx.fill()
       ctx.fillRect(cardX + 6, cy, 5, cardH)
 
-      // Emoji
-      ctx.font = '38px serif'; ctx.textAlign = 'center'
-      ctx.fillText(hero.emoji || '⚔️', cardX + 42, cy + cardH / 2 + 14)
+      // 英雄立繪（有圖片用圖片，無圖片用 emoji fallback）
+      const portraitCX = cardX + 42
+      const portraitBY = cy + cardH - 4
+      SpriteManager.drawHero(ctx, hero.id, portraitCX, portraitBY, 60, 88, () => {
+        ctx.font = '38px serif'; ctx.textAlign = 'center'
+        ctx.fillText(hero.emoji || '⚔️', portraitCX, cy + cardH / 2 + 14)
+      })
 
       // 名稱
       ctx.fillStyle = isSel ? '#fff' : T.textDark

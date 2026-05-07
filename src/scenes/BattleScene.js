@@ -57,12 +57,24 @@ export class BattleScene {
       e.size = e.size || 48
     })
 
-    this.bs = createBattleState(gameState.hero, rawEnemies, gameState.cardStars || {})
+    // 傳入裝備屬性 + 套裝技能（如果 gameState 有的話）
+    this.bs = createBattleState(
+      gameState.hero,
+      rawEnemies,
+      gameState.cardStars    || {},
+      gameState.equipStats   || {},
+      gameState.activeBonuses || []
+    )
 
+    // 記錄玩家螢幕座標，供套裝技能特效使用
     this.playerX = W * 0.18
     this.playerY = this.groundY
+    this.bs.player._posX = this.playerX
+    this.bs.player._posY = this.playerY
 
-    this.attackInterval = Math.round(70 / (gameState.hero?.spd || 1.0))
+    // 攻速 = 英雄基礎速度 + 裝備鞋子速度加成
+    const heroSpd = (gameState.hero?.spd || 1.0) + ((gameState.equipStats?.spd) || 0)
+    this.attackInterval = Math.round(70 / heroSpd)
     this.attackTimer    = 0
     this.phase          = 'player_turn'
 
@@ -712,17 +724,13 @@ function _makeclouds(W, H) {
 }
 
 function _lighten(hex, amt) {
-  const n = parseInt(hex.replace('#', ''), 16)
-  return 'rgb(' +
-    Math.min(255, ((n >> 16) & 0xff) + amt) + ',' +
-    Math.min(255, ((n >> 8)  & 0xff) + amt) + ',' +
-    Math.min(255, ((n)       & 0xff) + amt) + ')'
+  const n = parseInt((hex || '#888888').replace('#', ''), 16)
+  const r = Math.min(255, Math.max(0, ((n >> 16) & 0xff) + amt))
+  const g = Math.min(255, Math.max(0, ((n >> 8)  & 0xff) + amt))
+  const b = Math.min(255, Math.max(0, ((n)       & 0xff) + amt))
+  return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')
 }
 
 function _darken(hex, amt) {
-  const n = parseInt(hex.replace('#', ''), 16)
-  return 'rgb(' +
-    Math.max(0, ((n >> 16) & 0xff) - amt) + ',' +
-    Math.max(0, ((n >> 8)  & 0xff) - amt) + ',' +
-    Math.max(0, ((n)       & 0xff) - amt) + ')'
+  return _lighten(hex, -amt)
 }

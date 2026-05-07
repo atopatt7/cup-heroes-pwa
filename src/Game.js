@@ -11,6 +11,7 @@ import { SaveManager }     from './game/SaveManager.js'
 import { SpriteManager }   from './game/SpriteManager.js'
 import { CHAPTERS, getChapterReward } from './data/chapters.js'
 import { getHero }                    from './data/heroes.js'
+import { defaultEquipmentSave, getEquipmentStats, getActiveSetBonuses } from './game/EquipmentManager.js'
 
 const TOTAL_CHAPTERS = CHAPTERS.length
 
@@ -32,10 +33,17 @@ export class Game {
       this.canvas, this.ctx,
       {
         onStartBattle: (chapterIdx, waveIdx, heroId) => {
-          const hero = getHero(heroId)
+          const hero      = getHero(heroId)
           const cardStars = {}
           for (const id of (hero.startingCards || [])) cardStars[id] = 1
-          const gameState = { chapterIdx, waveIdx, hero, score: 0, gold: 0, cardStars }
+
+          // 讀取裝備存檔，計算屬性加成與套裝技能
+          const save         = SaveManager.load()
+          const equipSave    = save.equipment || defaultEquipmentSave()
+          const equipStats   = getEquipmentStats(equipSave)
+          const activeBonuses = getActiveSetBonuses(equipSave)
+
+          const gameState = { chapterIdx, waveIdx, hero, score: 0, gold: 0, cardStars, equipStats, activeBonuses }
           this.startBattle(gameState)
         },
         onHeroSelect: () => {

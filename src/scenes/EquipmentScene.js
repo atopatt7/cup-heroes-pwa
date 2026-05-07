@@ -284,25 +284,35 @@ export class EquipmentScene {
     }
     if (!piece) return
 
-    // 稀有度顏色標示（左下角小點）
-    const rarity = this.equipSave.pieceRarities?.[pieceId] || 'white'
-    const rCol   = getRarity(rarity).color
-    ctx.fillStyle = rCol
-    ctx.beginPath()
-    ctx.arc(x + sz - 10, y + sz - 10, 6, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1; ctx.stroke()
+    const rarity  = this.equipSave.pieceRarities?.[pieceId] || 'white'
+    const rData   = getRarity(rarity)
 
-    // 套裝 emoji
-    ctx.font = '22px serif'; ctx.textAlign = 'center'
-    ctx.fillText(setData ? setData.emoji : '?', x + sz / 2, y + sz / 2 + 4)
+    // 稀有度彩色方框 + 圖片（或 emoji fallback）
+    SpriteManager.drawEquipmentSlot(
+      ctx, pieceId, x, y, sz,
+      rData.color, rData.colorDark,
+      setData ? setData.emoji : '?'
+    )
 
-    // 等級數字
+    // 等級數字（方框右下角）
     const effLv = getEffectiveLevel(this.equipSave, s.slot, pieceId)
     ctx.font      = 'bold 10px sans-serif'
-    ctx.fillStyle = sel ? T.goldLight : 'rgba(255,255,220,0.85)'
+    ctx.fillStyle = sel ? T.goldLight : 'rgba(255,255,220,0.90)'
     ctx.textAlign = 'center'
-    ctx.fillText('Lv.' + effLv, x + sz / 2, y + sz - 6)
+    ctx.fillText('Lv.' + effLv, x + sz / 2, y + sz - 5)
+
+    // 選中高光邊框
+    if (sel) {
+      ctx.strokeStyle = T.goldLight; ctx.lineWidth = 2
+      const r = 8
+      ctx.beginPath()
+      ctx.moveTo(x + r, y); ctx.lineTo(x + sz - r, y)
+      ctx.arcTo(x + sz, y, x + sz, y + r, r)
+      ctx.lineTo(x + sz, y + sz - r); ctx.arcTo(x + sz, y + sz, x + sz - r, y + sz, r)
+      ctx.lineTo(x + r, y + sz); ctx.arcTo(x, y + sz, x, y + sz - r, r)
+      ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r)
+      ctx.closePath(); ctx.stroke()
+    }
   }
 
   _drawHero(ctx) {

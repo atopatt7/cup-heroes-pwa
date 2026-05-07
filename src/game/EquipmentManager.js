@@ -16,6 +16,20 @@ import { EQUIPMENT_SETS, getEquipmentById }                from '../data/equipme
 
 export { RARITY, RARITY_ORDER, getNextRarity, getRarity }
 
+// ── 數值計算用稀有度倍率 ──────────────────────────────────
+// 整數屬性（atk/hp/def）：大幅成長
+const RARITY_MULT = {
+  white: 1.0, blue: 1.6, purple: 2.5, yellow: 3.8, red: 5.5,
+}
+// 浮點屬性（crit/critMult/spd）：較平緩成長，避免數值爆炸
+const RARITY_MULT_FLOAT = {
+  white: 1.0, blue: 1.2, purple: 1.5, yellow: 1.8, red: 2.2,
+}
+// 整數屬性每等成長 8%，浮點屬性每等成長 3%
+const INT_GROWTH   = 0.08
+const FLOAT_GROWTH = 0.03
+const FLOAT_STATS  = new Set(['crit', 'critMult', 'spd'])
+
 // ── 欄位清單 ──────────────────────────────────────────────
 export const SLOTS = ['weapon', 'helmet', 'armor', 'gloves', 'pants', 'boots']
 
@@ -228,4 +242,52 @@ export function getEquippedSetCount(equipSave, setId) {
     if (template && template.setId === setId) count++
   }
   return count
+}
+
+// ── 裝備數值計算 ──────────────────────────────────────────
+// 計算單件在目前稀有度 + 有效等級下的實際屬性
+export function calcPieceStats(equipSave, pieceId) {
+  const template = getEquipmentById(pieceId)
+  if (!template || !template.baseStats) return {}
+
+  const rarity = equipSave.pieceRarities[pieceId] || 'white'
+  const effLv  = getEffectiveLevel(equipSave, template.slot, pieceId)
+  const result = {}
+
+  for (const [stat, base] of Object.entries(template.baseStats)) {
+    if (FLOAT_STATS.has(stat)) {
+      const mult   = RARITY_MULT_FLOAT[rarity] || 1.0
+      const growth = 1 + FLOAT_GROWTH * (effLv - 1)
+      result[stat] = Math.round(base * mult * growth * 10000) / 10000
+    } else {
+      const mult   = RARITY_MULT[rarity] || 1.0
+      const growth = 1 + INT_GROWTH * (effLv - 1)
+      result[stat] = Math.round(base * mult * growth)
+    }
+  }
+  return result
+}
+
+// 計算所有已裝備件的屬性加成總和
+// 回傳格式：{ atk, hp, def, crit, critMult, spd }
+export function getEquipmentStats(equipSave) {
+  const total = { atk: 0, hp: 0, def: 0, crit: 0, critMult: 0, spd: 0 }
+
+  for (const pieceId of Object.values(equipSave.equipped)) {
+    if (!pieceId) continue
+    const stats = calcPieceStats(equipSave, pieceId)
+    for (const [stat, val] of Object.entries(stats)) {
+      total[stat] = (total[stat] || 0) + val
+    }
+  }
+
+  // 精度整理
+  total.atk      = Math.round(total.atk)
+  total.hp       = Math.round(total.hp)
+  total.def      = Math.round(total.def)
+  total.crit     = Math.round(total.crit     * 10000) / 10000
+  total.critMult = Math.round(total.critMult * 100)   / 100
+  total.spd      = Math.round(total.spd      * 100)   / 100
+
+  return total
 }

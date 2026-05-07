@@ -155,5 +155,5 @@ function _rrect(ctx, x, y, w, h, r) {
 
 function _alpha(hex, a) {
   const n = parseInt((hex || '#888888').replace('#', ''), 16)
-  return `rgba(${(n >> 16) & 0xff},${(n >> 8) & 0xff},${n & 0xff},${a})`
+  return 'rgba(' + ((n >> 16) & 0xff) + ',' + ((n >> 8) & 0xff) + ',' + (n & 0xff) + ',' + a + ')'
 }

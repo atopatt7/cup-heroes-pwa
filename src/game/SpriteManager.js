@@ -9,7 +9,7 @@
 //   public/sprites/enemies/{type}.png    → enemy_{type}
 //   public/sprites/equipment/{id}.png    → equipment_{id}  （可選，裝備以稀有度方框為主）
 
-const BASE = '/cup-heroes-pwa/sprites'
+const BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') + '/sprites'
 
 // ── 英雄 ID 清單 ──────────────────────────────────────────
 const HERO_IDS = ['knight', 'rogue', 'barbarian', 'druid']

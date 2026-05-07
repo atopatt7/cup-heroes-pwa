@@ -261,10 +261,12 @@ export class BattleScene {
     // 波次資訊板（頂部）
     this._drawWavePanel(ctx, W, H)
 
-    // 玩家 HP 條（UI 固定位置）
+    // 玩家 HP 條（牌組欄上方，不被遮住）
+    // 牌組欄從 H - 54 開始，HP 條固定在其上方留 8px 間距
+    const deckBarY = H - 54
     const pShakeX = (this.shakeTarget === 'player' && this.shakeTimer > 0)
       ? Math.sin(this.shakeTimer * 1.4) * 6 : 0
-    drawHpBar(ctx, 10 + pShakeX, H - 58, 170, 22,
+    drawHpBar(ctx, 10 + pShakeX, deckBarY - 32, 180, 24,
       state.player.hp, state.player.maxHp,
       state.player.nameZh || state.player.name, '#4fc3f7')
 
@@ -325,6 +327,22 @@ export class BattleScene {
     const farR  = W * FIELD.farR
     const nearL = W * FIELD.nearL
     const nearR = W * FIELD.nearR
+
+    // ── 先整張畫布填滿深色，避免漏出前一場景 ────────────────
+    ctx.fillStyle = '#0a0e1a'
+    ctx.fillRect(0, 0, W, H)
+
+    // ── 梯形左右兩側空白區填色 ───────────────────────────────
+    ctx.fillStyle = '#0a0e1a'
+    ctx.beginPath()
+    ctx.moveTo(0, farY); ctx.lineTo(farL, farY)
+    ctx.lineTo(nearL, nearY); ctx.lineTo(0, nearY)
+    ctx.closePath(); ctx.fill()
+
+    ctx.beginPath()
+    ctx.moveTo(W, farY); ctx.lineTo(farR, farY)
+    ctx.lineTo(nearR, nearY); ctx.lineTo(W, nearY)
+    ctx.closePath(); ctx.fill()
 
     // 天空（地板上方）
     const skyG = ctx.createLinearGradient(0, 0, 0, farY + 20)
@@ -666,7 +684,7 @@ export class BattleScene {
     ctx.globalAlpha = 1
   }
 
-  // ─── 輔助 ────────────────────────────────────────────────
+  // ─── 輔助 ──────────────────────────────────────────  // ─── 輔助 ────────────────────────────────────────────────
   _addFloat(x, y, text, color, size) {
     this.floats.push({ x, y, text, color, life: 60, size: size || 18 })
   }

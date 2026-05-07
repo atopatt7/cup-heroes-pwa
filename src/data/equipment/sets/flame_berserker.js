@@ -1,15 +1,29 @@
-// 套裝：烈焰狂戰
+import { flame_berserker_weapon } from '../pieces/flame_berserker/weapon.js'
+import { flame_berserker_helmet } from '../pieces/flame_berserker/helmet.js'
+import { flame_berserker_armor  } from '../pieces/flame_berserker/armor.js'
+import { flame_berserker_gloves } from '../pieces/flame_berserker/gloves.js'
+import { flame_berserker_pants  } from '../pieces/flame_berserker/pants.js'
+import { flame_berserker_boots  } from '../pieces/flame_berserker/boots.js'
+
 export const flame_berserker = {
   id:     'flame_berserker',
   name:   'Flame Berserker',
   nameZh: '烈焰狂戰',
   emoji:  '🪓',
   pieces: {
-    weapon: { id: 'flame_berserker_weapon', slot: 'weapon', name: 'Lava Greataxe',   nameZh: '熔岩巨斧'   },
-    helmet: { id: 'flame_berserker_helmet', slot: 'helmet', name: 'Flame Horn Helm', nameZh: '火焰戰角盔' },
-    armor:  { id: 'flame_berserker_armor',  slot: 'armor',  name: 'Blazing Chestplate', nameZh: '燃燒胸甲' },
-    gloves: { id: 'flame_berserker_gloves', slot: 'gloves', name: 'Ember Fists',     nameZh: '炎拳鐵手套' },
-    pants:  { id: 'flame_berserker_pants',  slot: 'pants',  name: 'Crimson War Kilt',nameZh: '赤紅戰裙褲' },
-    boots:  { id: 'flame_berserker_boots',  slot: 'boots',  name: 'Magma Stompers',  nameZh: '熔岩踏火靴' },
+    weapon: flame_berserker_weapon,
+    helmet: flame_berserker_helmet,
+    armor:  flame_berserker_armor,
+    gloves: flame_berserker_gloves,
+    pants:  flame_berserker_pants,
+    boots:  flame_berserker_boots,
+  },
+  setBonus: {
+    requiredPieces: 4,
+    id:      'berserker_rage',
+    nameZh:  '瀕死狂化',
+    descZh:  '血量低於 50% 時傷害 +50%；低於 25% 時傷害 +100%',
+    effect:  'berserker_rage',
+    params:  { threshold1: 0.50, bonus1: 0.50, threshold2: 0.25, bonus2: 1.00 },
   },
 }

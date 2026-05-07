@@ -182,3 +182,50 @@ export function unequipSlot(equipSave, slot) {
   }
   return { ok: true, save: next }
 }
+
+// ── 套裝技能判斷 ──────────────────────────────────────────
+// 計算每個套裝目前裝備了幾件，回傳已達門檻的套裝技能陣列
+// 回傳格式：[{ setId, setNameZh, setEmoji, pieceCount, bonus }]
+export function getActiveSetBonuses(equipSave) {
+  // 統計每個套裝裝備件數
+  const countBySet = {}
+  for (const pieceId of Object.values(equipSave.equipped)) {
+    if (!pieceId) continue
+    const template = getEquipmentById(pieceId)
+    if (!template) continue
+    countBySet[template.setId] = (countBySet[template.setId] || 0) + 1
+  }
+
+  // 篩選達到 requiredPieces 的套裝
+  const active = []
+  for (const [setId, count] of Object.entries(countBySet)) {
+    const set = EQUIPMENT_SETS[setId]
+    if (!set || !set.setBonus) continue
+    if (count >= set.setBonus.requiredPieces) {
+      active.push({
+        setId,
+        setNameZh:  set.nameZh,
+        setEmoji:   set.emoji,
+        pieceCount: count,
+        bonus:      set.setBonus,
+      })
+    }
+  }
+  return active
+}
+
+// 快速判斷單一套裝技能是否啟動
+export function isSetBonusActive(equipSave, setId) {
+  return getActiveSetBonuses(equipSave).some(s => s.setId === setId)
+}
+
+// 取得單一套裝目前裝備件數
+export function getEquippedSetCount(equipSave, setId) {
+  let count = 0
+  for (const pieceId of Object.values(equipSave.equipped)) {
+    if (!pieceId) continue
+    const template = getEquipmentById(pieceId)
+    if (template && template.setId === setId) count++
+  }
+  return count
+}

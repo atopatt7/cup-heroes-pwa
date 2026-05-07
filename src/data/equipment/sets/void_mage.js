@@ -1,15 +1,29 @@
-// 套裝：虛空術士
+import { void_mage_weapon } from '../pieces/void_mage/weapon.js'
+import { void_mage_helmet } from '../pieces/void_mage/helmet.js'
+import { void_mage_armor  } from '../pieces/void_mage/armor.js'
+import { void_mage_gloves } from '../pieces/void_mage/gloves.js'
+import { void_mage_pants  } from '../pieces/void_mage/pants.js'
+import { void_mage_boots  } from '../pieces/void_mage/boots.js'
+
 export const void_mage = {
   id:     'void_mage',
   name:   'Void Mage',
   nameZh: '虛空術士',
   emoji:  '🔮',
   pieces: {
-    weapon: { id: 'void_mage_weapon', slot: 'weapon', name: 'Star Annihilator', nameZh: '星滅法杖'   },
-    helmet: { id: 'void_mage_helmet', slot: 'helmet', name: 'Void Crown',       nameZh: '虛空法冠'   },
-    armor:  { id: 'void_mage_armor',  slot: 'armor',  name: 'Stellar Robe',     nameZh: '星域法袍'   },
-    gloves: { id: 'void_mage_gloves', slot: 'gloves', name: 'Arcane Fingers',   nameZh: '奧術指手套' },
-    pants:  { id: 'void_mage_pants',  slot: 'pants',  name: 'Void Skirt',       nameZh: '虛空長裙褲' },
-    boots:  { id: 'void_mage_boots',  slot: 'boots',  name: 'Starwalker Shoes', nameZh: '星行法靴'   },
+    weapon: void_mage_weapon,
+    helmet: void_mage_helmet,
+    armor:  void_mage_armor,
+    gloves: void_mage_gloves,
+    pants:  void_mage_pants,
+    boots:  void_mage_boots,
+  },
+  setBonus: {
+    requiredPieces: 4,
+    id:      'void_chain',
+    nameZh:  '虛空連鎖',
+    descZh:  '擊殺敵人後下次攻擊傷害 +100%，可無限疊加直到一次未擊殺為止',
+    effect:  'void_chain',
+    params:  { bonusPerKill: 1.00 },
   },
 }

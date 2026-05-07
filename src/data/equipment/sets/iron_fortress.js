@@ -1,15 +1,29 @@
-// 套裝：鐵壁堡壘
+import { iron_fortress_weapon } from '../pieces/iron_fortress/weapon.js'
+import { iron_fortress_helmet } from '../pieces/iron_fortress/helmet.js'
+import { iron_fortress_armor  } from '../pieces/iron_fortress/armor.js'
+import { iron_fortress_gloves } from '../pieces/iron_fortress/gloves.js'
+import { iron_fortress_pants  } from '../pieces/iron_fortress/pants.js'
+import { iron_fortress_boots  } from '../pieces/iron_fortress/boots.js'
+
 export const iron_fortress = {
   id:     'iron_fortress',
   name:   'Iron Fortress',
   nameZh: '鐵壁堡壘',
   emoji:  '🛡️',
   pieces: {
-    weapon: { id: 'iron_fortress_weapon', slot: 'weapon', name: 'Rampart Sword',  nameZh: '城牆巨劍'   },
-    helmet: { id: 'iron_fortress_helmet', slot: 'helmet', name: 'Full Iron Helm', nameZh: '全封鐵盔'   },
-    armor:  { id: 'iron_fortress_armor',  slot: 'armor',  name: 'Iron Plate',     nameZh: '厚鐵胸甲'   },
-    gloves: { id: 'iron_fortress_gloves', slot: 'gloves', name: 'Iron Gauntlets', nameZh: '重甲鐵拳套' },
-    pants:  { id: 'iron_fortress_pants',  slot: 'pants',  name: 'Iron Greaves',   nameZh: '鐵製腿甲'   },
-    boots:  { id: 'iron_fortress_boots',  slot: 'boots',  name: 'Cast Iron Boots',nameZh: '鑄鐵戰靴'   },
+    weapon: iron_fortress_weapon,
+    helmet: iron_fortress_helmet,
+    armor:  iron_fortress_armor,
+    gloves: iron_fortress_gloves,
+    pants:  iron_fortress_pants,
+    boots:  iron_fortress_boots,
+  },
+  setBonus: {
+    requiredPieces: 4,
+    id:      'iron_block',
+    nameZh:  '鐵壁格擋',
+    descZh:  '受到傷害時有 35% 機率完全格擋，該次傷害歸零',
+    effect:  'iron_block',
+    params:  { chance: 0.35 },
   },
 }

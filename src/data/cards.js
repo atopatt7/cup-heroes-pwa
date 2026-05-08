@@ -438,9 +438,26 @@ export function getCardDesc(card, stars=1) {
   return typeof card.desc === 'function' ? card.desc(stars) : (card.desc || '')
 }
 
-export function drawCardOffers(count=3, wave=1, heroId='knight', cardStars={}) {
-  const univAvail = Object.values(UNIVERSAL_CARDS).filter(c => (cardStars[c.id] || 0) < MAX_STARS)
-  const heroAvail = getHeroCards(heroId).filter(c => (cardStars[c.id] || 0) < MAX_STARS)
+// 卡牌費用：第 n 次購買 = (n-1)*100 球，首次永遠免費
+export function getCardCost(cardId, cardPurchases={}) {
+  return (cardPurchases[cardId] || 0) * 100
+}
+
+// count  = 抽幾張
+// balls  = 目前可用球數（只抽買得起的）
+// cardPurchases = { [id]: 購買次數 }
+export function drawCardOffers(count=3, wave=1, heroId='knight', cardStars={}, balls=9999, cardPurchases={}) {
+  const canAfford = (c) => getCardCost(c.id, cardPurchases) <= balls
+  const notMaxed  = (c) => (cardStars[c.id] || 0) < MAX_STARS
+  const isFree    = (c) => (cardPurchases[c.id] || 0) === 0
+
+  // 主要池：買得起的牌
+  const univAfford = Object.values(UNIVERSAL_CARDS).filter(c => notMaxed(c) && canAfford(c))
+  const heroAfford = getHeroCards(heroId).filter(c => notMaxed(c) && canAfford(c))
+
+  // 免費補充池：未買過的牌（cost=0），當球數不足時用來補滿三選一
+  const univFree = Object.values(UNIVERSAL_CARDS).filter(c => notMaxed(c) && isFree(c))
+  const heroFree = getHeroCards(heroId).filter(c => notMaxed(c) && isFree(c))
 
   const seen   = new Set()
   const result = []
@@ -449,17 +466,25 @@ export function drawCardOffers(count=3, wave=1, heroId='knight', cardStars={}) {
     const avail = pool.filter(c => !seen.has(c.id))
     if (!avail.length) return false
     const card = avail[Math.floor(Math.random() * avail.length)]
-    seen.add(card.id)
-    result.push(card)
+    seen.add(card.id); result.push(card)
     return true
   }
 
-  if (heroAvail.length > 0) pickFrom(heroAvail)
-
-  const combined = _shuffle([...univAvail, ...univAvail, ...heroAvail])
+  // 第一輪：從買得起的牌裡選，優先保證一張英雄牌
+  if (heroAfford.length > 0) pickFrom(heroAfford)
+  const combined = _shuffle([...univAfford, ...univAfford, ...heroAfford])
   for (const card of combined) {
     if (result.length >= count) break
     if (!seen.has(card.id)) { seen.add(card.id); result.push(card) }
+  }
+
+  // 第二輪：不足 count 張時用免費牌補滿（確保永遠有牌可選）
+  if (result.length < count) {
+    const freeFill = _shuffle([...univFree, ...heroFree])
+    for (const card of freeFill) {
+      if (result.length >= count) break
+      if (!seen.has(card.id)) { seen.add(card.id); result.push(card) }
+    }
   }
 
   return _shuffle(result)

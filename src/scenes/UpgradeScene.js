@@ -1,7 +1,7 @@
 // UpgradeScene.js — 卡牌選擇畫面（群組 + 星級升級系統）
 // 通用牌：所有英雄可取得  英雄牌：該英雄專屬
 // 重複取得同一張牌 → 升星（最多 5 星），升滿後不再出現
-import { drawCardOffers, getCardDesc, MAX_STARS } from '../data/cards.js'
+import { drawCardOffers, getCardDesc, getCardCost, MAX_STARS } from '../data/cards.js'
 import { T } from '../utils/theme.js'
 import { drawBtn, rrect } from '../utils/drawHelpers.js'
 
@@ -35,11 +35,15 @@ export class UpgradeScene {
     this.state   = 'choosing'
     this.animId  = null
 
-    // 確保 cardStars 存在
-    if (!this.gameState.cardStars) this.gameState.cardStars = {}
+    // 確保 cardStars / cardPurchases 存在
+    if (!this.gameState.cardStars)     this.gameState.cardStars     = {}
+    if (!this.gameState.cardPurchases) this.gameState.cardPurchases = {}
 
-    const wave = (gameState.waveIdx || 0) + (gameState.chapterIdx || 0) * 15 + 1
-    this.cards = drawCardOffers(3, wave, gameState.hero?.id || 'knight', this.gameState.cardStars)
+    const wave  = (gameState.waveIdx || 0) + (gameState.chapterIdx || 0) * 15 + 1
+    const balls = gameState.balls || 0
+    this.cards  = drawCardOffers(3, wave, gameState.hero?.id || 'knight',
+                    this.gameState.cardStars, balls, this.gameState.cardPurchases)
+    // 若全買不起仍顯示空白（玩家看到「球不夠」提示）
 
     this._loop    = this._loop.bind(this)
     this._onClick = this._onClick.bind(this)
@@ -80,9 +84,19 @@ export class UpgradeScene {
       if (tx >= cardX && tx <= cardX + cardW && ty >= cy && ty <= cy + cardH) {
         this.chosen = i
         this.state  = 'chosen'
-        // 升星：重複取得同牌 → +1 星（不重複 push deck）
+
+        // 扣球數
+        const cost = getCardCost(card.id, this.gameState.cardPurchases)
+        this.gameState.balls = Math.max(0, (this.gameState.balls || 0) - cost)
+
+        // 紀錄購買次數（決定下次費用）
+        const cp = this.gameState.cardPurchases
+        cp[card.id] = (cp[card.id] || 0) + 1
+
+        // 升星：重複取得同牌 → +1 星
         const cs = this.gameState.cardStars
         cs[card.id] = Math.min((cs[card.id] || 0) + 1, MAX_STARS)
+
         // 首次取得才加入 deck
         if (!this.gameState.hero.deck) this.gameState.hero.deck = []
         if (!this.gameState.hero.deck.includes(card.id)) {
@@ -136,10 +150,16 @@ export class UpgradeScene {
     ctx.font      = '13px sans-serif'
     ctx.fillText(`第${chNum}章 波次${wNum} 完成  🏆 得分：${this.totalScore}`, W / 2, 68)
 
+    // ── 球數顯示 ─────────────────────────────────────────────
+    const balls = this.gameState.balls || 0
+    ctx.font = 'bold 15px sans-serif'
+    ctx.fillStyle = balls > 0 ? '#ffe566' : '#667788'
+    ctx.fillText('⚪ ' + balls + ' 球', W / 2, 86)
+
     const h = this.gameState.hero
     ctx.fillStyle = '#667788'
     ctx.font      = '12px sans-serif'
-    ctx.fillText(`HP ${Math.ceil(h.hp)}/${h.maxHp}  ATK ${h.atk}  DEF ${h.def}  牌組：${(h.deck||[]).length}張`, W / 2, 86)
+    ctx.fillText(`HP ${Math.ceil(h.hp)}/${h.maxHp}  ATK ${h.atk}  DEF ${h.def}  牌組：${(h.deck||[]).length}張`, W / 2, 102)
 
     // ── 卡牌列表 ──────────────────────────────────────────────
     this.cards.forEach((card, i) => {
@@ -204,6 +224,19 @@ export class UpgradeScene {
         ctx.fillText('★', starX0 + si * 14, cy + 22)
       }
 
+      // ── 費用標籤（右上角）──
+      const cost = getCardCost(card.id, this.gameState.cardPurchases || {})
+      ctx.textAlign = 'right'
+      if (cost === 0) {
+        ctx.fillStyle = '#44ee88'
+        ctx.font      = 'bold 12px sans-serif'
+        ctx.fillText('免費', cardX + cardW - 12, cy + 22)
+      } else {
+        ctx.fillStyle = '#ffe566'
+        ctx.font      = 'bold 12px sans-serif'
+        ctx.fillText('⚪ ' + cost, cardX + cardW - 12, cy + 22)
+      }
+
       // ── 卡名 ──
       ctx.fillStyle = '#ffffff'
       ctx.font      = 'bold 17px sans-serif'
@@ -224,7 +257,7 @@ export class UpgradeScene {
       if (isUpgrade) {
         ctx.fillStyle = '#44cc88'
         ctx.font      = 'bold 10px sans-serif'
-        ctx.fillText(`⬆ 升星  ${curStars}★ → ${nextStar}★`, cardX + 54, cy + 108)
+        ctx.fillText('⬆ 升星  ' + curStars + '★ → ' + nextStar + '★', cardX + 54, cy + 108)
       } else {
         ctx.fillStyle = '#55dd99'
         ctx.font      = 'bold 10px sans-serif'
@@ -255,23 +288,32 @@ export class UpgradeScene {
       ctx.fillStyle   = '#8899aa'
       ctx.font        = '15px sans-serif'
       ctx.textAlign   = 'center'
-      ctx.fillText('👆 點選一張卡牌', W / 2, H * 0.928)
+      ctx.fillText('點擊卡片選擇', W / 2, H * 0.938)
       ctx.globalAlpha = 1
     }
   }
 
   _drawBgStars(ctx, W) {
-    const pts = [
-      [30, 20], [80, 50], [150, 10], [240, 35], [310, 15], [370, 40],
-      [50, 110], [190, 95], [350, 105], [20, 150],
-    ]
-    ctx.fillStyle = '#ffffff'
-    for (const [sx, sy] of pts) {
-      ctx.globalAlpha = (0.3 + Math.abs(Math.sin(this.t * 1.5 + sx * 0.05)) * 0.7) * 0.6
-      ctx.beginPath()
-      ctx.arc(sx, sy, 1.5, 0, Math.PI * 2)
-      ctx.fill()
+    const count = 28
+    for (let i = 0; i < count; i++) {
+      const x = ((i * 137.5) % W)
+      const y = ((i * 83.7)  % 220) + 10
+      const r = i % 3 === 0 ? 1.5 : 1
+      const a = 0.25 + (i % 5) * 0.10
+      ctx.fillStyle = 'rgba(255,255,255,' + a + ')'
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill()
     }
-    ctx.globalAlpha = 1
+  }
+
+  _layout() {
+    const W = this.canvas.width
+    const H = this.canvas.height
+    return {
+      W, H,
+      cardW:  Math.floor(W * 0.84),
+      cardH:  130,
+      cardX:  Math.floor(W * 0.08),
+      startY: Math.floor(H * 0.22),
+    }
   }
 }

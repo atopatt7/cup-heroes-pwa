@@ -43,7 +43,7 @@ export class Game {
           const equipStats   = getEquipmentStats(equipSave)
           const activeBonuses = getActiveSetBonuses(equipSave)
 
-          const gameState = { chapterIdx, waveIdx, hero, score: 0, gold: 0, cardStars, equipStats, activeBonuses }
+          const gameState = { chapterIdx, waveIdx, hero, score: 0, gold: 0, balls: 0, cardPurchases: {}, cardStars, equipStats, activeBonuses }
           this.startBattle(gameState)
         },
         onHeroSelect: () => {
@@ -64,7 +64,7 @@ export class Game {
       const hero = getHero(heroId)
       const cardStars = {}
       for (const id of (hero.startingCards || [])) cardStars[id] = 1
-      const gameState = { chapterIdx: 0, waveIdx: 0, hero, score: 0, gold: 0, cardStars }
+      const gameState = { chapterIdx: 0, waveIdx: 0, hero, score: 0, gold: 0, balls: 0, cardPurchases: {}, cardStars }
       this.startBattle(gameState)
     })
     this._switch(new HeroSelectScene(this.canvas, this.ctx, callback))
@@ -83,6 +83,7 @@ export class Game {
       this.canvas, this.ctx, gameState,
       (totalScore) => {
         gameState.score = (gameState.score || 0) + totalScore
+        gameState.balls = (gameState.balls || 0) + totalScore  // 累積球數當作購牌預算
         this.showUpgrade(gameState, totalScore)
       }
     ))

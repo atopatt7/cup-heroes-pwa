@@ -246,7 +246,12 @@ export class BattleScene {
     for (const eff of state.effects) this._showCardBanner(eff.text, eff.color)
     state.effects.length = 0
 
-    if (target.hp <= 0) this._addFloat(target.x, target.y - target.size - 30, '擊倒！', '#00e676', 20)
+    if (target.hp <= 0) {
+      this._addFloat(target.x, target.y - target.size - 30, '擊倒！', '#00e676', 20)
+      // 殺敵 → 累積球台彈藥
+      this.gameState.cupAmmo = (this.gameState.cupAmmo || 0) + 1
+      this._addFloat(target.x + 24, target.y - target.size - 50, '球 +1', '#64b5f6', 15)
+    }
     const end = checkBattleEnd(state)
     if (end) { this._endBattle(); return }
     this.phase = 'enemy_turn'

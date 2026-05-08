@@ -10,6 +10,8 @@ export function createGameState(heroId = 'knight') {
     hero:       getHero(heroId),
     score:      0,
     gold:       0,
+    balls:      0,   // cumulative card-purchase budget (accumulated from cup game scores)
+    cupAmmo:    3,   // white-ball ammo for the cup game; starts at 3, +1 per enemy kill
   }
 }
 

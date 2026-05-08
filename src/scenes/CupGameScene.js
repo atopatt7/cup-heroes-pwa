@@ -25,9 +25,8 @@ export class CupGameScene {
     this.pourCup = { x: W / 2, y: 72, w: 56, h: 40 }
 
     // ── 可用球數 ─────────────────────────────────────────────
-    const chapter      = gameState.chapterIdx || 0
-    const bonus        = gameState.hero?.bonusBalls || 0
-    this.ballsLeft     = 6 + chapter + bonus
+    // 使用戰鬥中殺敵累積的 cupAmmo；createGameState 預設 3 顆保底
+    this.ballsLeft     = gameState.cupAmmo ?? 3
     this.ballsInFlight = 0
 
     // ── 分段門 ───────────────────────────────────────────────
@@ -219,6 +218,8 @@ export class CupGameScene {
     } else if (this.phase === 'end') {
       this.done = true
       this._cleanup()
+      // 消耗所有彈藥（下一波從 0 重新累積殺敵）
+      this.gameState.cupAmmo = 0
       this.onComplete(this.totalScore)
     }
   }
@@ -314,6 +315,9 @@ export class CupGameScene {
       if (ball.settled) continue
 
       for (const gate of this.gates) {
+        // Y 範圍剔除：球距門太遠直接跳過，省略所有釘子 & 分段計算
+        if (ball.y + ball.r < gate.y - 30 || ball.y - ball.r > gate.y + gate.h + 20) continue
+
         // 釘子物理彈射（位置修正 + 速度反射）
         for (const pin of gate.pins) {
           const dx = ball.x - pin.x

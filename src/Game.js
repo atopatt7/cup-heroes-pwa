@@ -126,7 +126,7 @@ export class Game {
   }
 
   _onBattleVictory(gameState) {
-    // 每場戰鬥後進入球台
+    // cupAmmo 由戰鬥中殺敵累積，這裡不重置，直接帶入球台
     this.startCupGame(gameState)
   }
 

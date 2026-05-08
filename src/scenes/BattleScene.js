@@ -1,5 +1,5 @@
 // BattleScene.js — 自動戰鬥場景（橫版側視圖）
-import { createBattleState, playerAttack, enemyAttack, checkBattleEnd } from '../game/AutoBattle.js'
+import { createBattleState, playerAttack, enemyAttackOne, checkBattleEnd } from '../game/AutoBattle.js'
 import { generateWaveEnemies, getWaveLabel, CHAPTERS } from '../data/chapters.js'
 import { getCardById } from '../data/cards.js'
 import { SpriteManager } from '../game/SpriteManager.js'
@@ -81,6 +81,9 @@ export class BattleScene {
     this.floats     = []
     this.anims      = []   // 攻擊動畫佇列
     this.heroMove   = null // 英雄移動動畫（近戰衝刺）
+    this.enemyMoves = []   // 近戰敵人移動動畫（可同時存多個）
+    this.enemyQueue = []   // 待攻擊敵人佇列（依序攻擊用）
+    this.enemyQueueTimer = 0
     this.shakeTarget = null
     this.shakeTimer  = 0
     this.endTimer    = 0
@@ -149,20 +152,29 @@ export class BattleScene {
     if (this.heroMove) {
       const hm = this.heroMove
       hm.progress += dt * 60 / hm.duration
-      // 在撞擊時機點生成特效
       if (!hm.impactDone && hm.progress >= hm.impactAt) {
         hm.impactDone = true
         this.anims.push({
-          type: hm.impactType,
-          color: hm.impactColor,
-          ix: hm.impactX,
-          iy: hm.impactY,
-          progress: 0,
-          duration: 14,
-          done: false,
+          type: hm.impactType, color: hm.impactColor,
+          ix: hm.impactX, iy: hm.impactY,
+          progress: 0, duration: 14, done: false,
         })
       }
       if (hm.progress >= 1) this.heroMove = null
+    }
+
+    // 近戰敵人移動動畫
+    this.enemyMoves = this.enemyMoves.filter(em => em.progress < 1)
+    for (const em of this.enemyMoves) {
+      em.progress += dt * 60 / em.duration
+      if (!em.impactDone && em.progress >= em.impactAt) {
+        em.impactDone = true
+        this.anims.push({
+          type: em.impactType, color: em.impactColor,
+          ix: em.impactX, iy: em.impactY,
+          progress: 0, duration: 12, done: false,
+        })
+      }
     }
 
     // 飛彈動畫更新
@@ -170,7 +182,8 @@ export class BattleScene {
     for (const a of this.anims) {
       a.progress += dt * 60 / a.duration
       // 靜態特效（撞擊閃光）不需要移動
-      if (a.type === 'slash_impact' || a.type === 'stab_impact' || a.type === 'axe_slam') {
+      if (a.type === 'slash_impact' || a.type === 'stab_impact' || a.type === 'axe_slam' ||
+          a.type === 'enemy_slam'   || a.type === 'enemy_slash') {
         if (a.progress >= 1) a.done = true
         continue
       }
@@ -207,7 +220,13 @@ export class BattleScene {
     if (this.phase === 'player_turn' && this.attackTimer >= this.attackInterval) {
       this.attackTimer = 0; this._doPlayerTurn()
     } else if (this.phase === 'enemy_turn' && this.attackTimer >= this.attackInterval) {
-      this.attackTimer = 0; this._doEnemyTurn()
+      this.attackTimer = 0; this._startEnemyQueue()
+    } else if (this.phase === 'enemy_attacking') {
+      this.enemyQueueTimer += dt * 60
+      if (this.enemyQueueTimer >= 22) {
+        this.enemyQueueTimer = 0
+        this._processNextEnemy()
+      }
     }
   }
 
@@ -233,26 +252,42 @@ export class BattleScene {
     this.phase = 'enemy_turn'
   }
 
-  _doEnemyTurn() {
-    const state   = this.bs
-    const results = enemyAttack(state)
-    if (!results) { this.phase = 'player_turn'; return }
+  _startEnemyQueue() {
+    const alive = this.bs.enemies.filter(e => e.hp > 0)
+    if (!alive.length) { this.phase = 'player_turn'; return }
+    // 依 x 座標排序（最左邊先攻）
+    this.enemyQueue = [...alive].sort((a, b) => a.x - b.x)
+    this.enemyQueueTimer = 22  // 立刻觸發第一個
+    this.phase = 'enemy_attacking'
+  }
 
-    for (const { damage } of results) {
+  _processNextEnemy() {
+    if (!this.enemyQueue.length) {
+      // 全部攻完 → 檢查戰鬥結束
+      for (const eff of this.bs.effects) this._showCardBanner(eff.text, eff.color)
+      this.bs.effects.length = 0
+      const end = checkBattleEnd(this.bs)
+      if (end) { this._endBattle(); return }
+      this.phase = 'player_turn'
+      return
+    }
+
+    const enemy  = this.enemyQueue.shift()
+    if (enemy.hp <= 0) { this._processNextEnemy(); return }  // 已死跳過
+
+    const result = enemyAttackOne(this.bs, enemy)
+    if (!result) return
+
+    if (result.stunned) {
+      this._addFloat(enemy.x, enemy.y - (enemy.size || 48) - 10, '眩暈！', '#88ffcc', 16)
+    } else if (result.damage > 0) {
       this._addFloat(
         this.playerX + (Math.random() - 0.5) * 20,
         this.playerY - 70,
-        '-' + damage, '#ff5555', 18)
+        '-' + result.damage, '#ff5555', 18)
+      this._spawnEnemyAnim(enemy)
+      this.shakeTarget = 'player'; this.shakeTimer = 8
     }
-
-    for (const r of results) { if (!r.stunned && r.damage > 0) this._spawnEnemyAnim(r.attacker) }
-    this.shakeTarget = 'player'; this.shakeTimer = 10
-    for (const eff of state.effects) this._showCardBanner(eff.text, eff.color)
-    state.effects.length = 0
-
-    const end = checkBattleEnd(state)
-    if (end) { this._endBattle(); return }
-    this.phase = 'player_turn'
   }
 
   _endBattle() {
@@ -502,11 +537,29 @@ export class BattleScene {
   // ─── 敵人角色 ────────────────────────────────────────────
   _drawEnemyChar(ctx, enemy, x, groundY) {
     const size = enemy.size || 48
+    // 若此敵人正在近戰衝刺，使用動畫 X
+    const em   = this.enemyMoves.find(m => m.enemy === enemy)
+    const drawX = em ? _enemyMoveX(em) : x
+
+    // 衝刺時前傾
+    let tilt = 0
+    if (em) {
+      const t = em.progress
+      if (t < em.goEnd)           tilt = -0.15 * (t / em.goEnd)
+      else if (t < em.returnStart) tilt = -0.15
+      else                         tilt = -0.15 * (1 - (t - em.returnStart) / (1 - em.returnStart))
+    }
+
     ctx.save()
+    if (tilt !== 0) {
+      ctx.translate(drawX, groundY)
+      ctx.rotate(tilt)
+      ctx.translate(-drawX, -groundY)
+    }
     ctx.fillStyle = 'rgba(0,0,0,0.18)'
-    ctx.beginPath(); ctx.ellipse(x, groundY + 6, size * 0.45, 7, 0, 0, Math.PI * 2); ctx.fill()
-    if (enemy.isBoss) this._drawBoss(ctx, enemy, x, groundY, size)
-    else              this._drawEnemy(ctx, enemy, x, groundY, size)
+    ctx.beginPath(); ctx.ellipse(drawX, groundY + 6, size * 0.45, 7, 0, 0, Math.PI * 2); ctx.fill()
+    if (enemy.isBoss) this._drawBoss(ctx, enemy, drawX, groundY, size)
+    else              this._drawEnemy(ctx, enemy, drawX, groundY, size)
     ctx.restore()
   }
 
@@ -827,14 +880,49 @@ export class BattleScene {
 
   _spawnEnemyAnim(attacker) {
     if (!attacker) return
-    const fromX = attacker.x - 20
-    const fromY = attacker.y - (attacker.size || 48) * 0.5
-    const toX   = this.playerX
-    const toY   = this.playerY - 55
+    const type   = attacker.type || 'slime'
+    const size   = attacker.size || 48
+    const fromX  = attacker.x
+    const fromY  = attacker.y - size * 0.5
+    const toX    = this.playerX
+    const toY    = this.playerY - 55
+    const color  = attacker.color || '#ff4444'
+
+    // 近戰敵人：衝向玩家再退回
+    const meleeTypes = { orc: 1, troll: 1, iron_knight: 1 }
+    if (meleeTypes[type]) {
+      const cfg = {
+        orc:         { duration: 24, goEnd: 0.42, returnStart: 0.62, impactAt: 0.43, impactType: 'enemy_slam', impactColor: '#cc5500' },
+        troll:       { duration: 30, goEnd: 0.50, returnStart: 0.68, impactAt: 0.51, impactType: 'enemy_slam', impactColor: '#557722' },
+        iron_knight: { duration: 20, goEnd: 0.38, returnStart: 0.58, impactAt: 0.39, impactType: 'enemy_slash', impactColor: '#aaccff' },
+      }
+      const c = cfg[type] || cfg.orc
+      this.enemyMoves.push({
+        enemy: attacker,
+        startX: fromX,
+        targetX: toX + 44,
+        impactX: toX + 16,
+        impactY: toY,
+        impactDone: false,
+        progress: 0,
+        ...c,
+      })
+      return
+    }
+
+    // 遠程敵人：各類投射物
+    const projCfg = {
+      slime:           { type: 'blob_shot',    color, glow: '#88ff88', duration: 20, arcH: 30, spin: 0, spinSpeed: 0.06 },
+      goblin:          { type: 'knife_throw',  color: '#ffcc44', glow: '#ffee88', duration: 13, arcH: -10, spin: 0, spinSpeed: 0.55 },
+      forest_guardian: { type: 'nature_orb',   color: '#44dd88', glow: '#aaffcc', duration: 18, arcH: 0,  spin: 0, spinSpeed: 0.10 },
+      void_lord:       { type: 'void_bolt',    color: '#8844ff', glow: '#cc88ff', duration: 22, arcH: 0,  spin: 0, spinSpeed: 0.08 },
+    }
+    const pc = projCfg[type] || { type: 'enemy_orb', color, glow: '#ff8866', duration: 16, arcH: 0, spin: 0, spinSpeed: 0.20 }
+
     this.anims.push({
-      type: 'enemy_orb', color: attacker.color || '#ff4444', glow: '#ff8866',
+      ...pc,
       fromX, fromY, toX, toY,
-      progress: 0, duration: 16, spin: 0, spinSpeed: 0.20, trail: [], done: false, dir: -1,
+      progress: 0, trail: [], done: false, dir: -1,
     })
   }
 
@@ -854,10 +942,15 @@ export class BattleScene {
       if (a.type === 'slash_impact') { _animSlashImpact(ctx, a); ctx.restore(); continue }
       if (a.type === 'stab_impact')  { _animStabImpact(ctx, a);  ctx.restore(); continue }
       if (a.type === 'axe_slam')     { _animAxeSlam(ctx, a);     ctx.restore(); continue }
+      if (a.type === 'enemy_slam')   { _animEnemySlam(ctx, a);   ctx.restore(); continue }
+      if (a.type === 'enemy_slash')  { _animEnemySlash(ctx, a);  ctx.restore(); continue }
 
       switch (a.type) {
         case 'nature_orb':  _animNatureOrb(ctx, a, px, py); break
         case 'enemy_orb':   _animEnemyOrb(ctx, a, px, py);  break
+        case 'blob_shot':   _animBlobShot(ctx, a, px, py);  break
+        case 'knife_throw': _animKnifeThrow(ctx, a, px, py); break
+        case 'void_bolt':   _animVoidBolt(ctx, a, px, py);  break
       }
 
       // 到達目標時顯示撞擊閃光（法球用）
@@ -1107,128 +1200,263 @@ function _animSlashImpact(ctx, a) {
   // X 形斬痕
   ctx.globalAlpha = al
   ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.lineCap = 'round'
-  ctx.shadowColor = '#ffe566'; ctx.shadowBlur = 14
-  for (const ang of [-Math.PI / 4, Math.PI / 4]) {
+  for (let i = 0; i < 4; i++) {
+    const ang = (i / 4) * Math.PI * 2 + Math.PI / 8
     ctx.beginPath()
-    ctx.moveTo(Math.cos(ang) * -sz * 0.6, Math.sin(ang) * -sz * 0.6)
-    ctx.lineTo(Math.cos(ang) *  sz * 0.6, Math.sin(ang) *  sz * 0.6)
+    ctx.moveTo(Math.cos(ang) * (sz * 0.3), Math.sin(ang) * (sz * 0.3))
+    ctx.lineTo(Math.cos(ang) * (sz * 0.95), Math.sin(ang) * (sz * 0.95))
     ctx.stroke()
   }
-
   ctx.shadowBlur = 0
   ctx.restore()
 }
 
-// 盜賊刺擊：紫色多重刺痕 + 速度線
 function _animStabImpact(ctx, a) {
   const t  = Math.min(a.progress, 1)
-  const al = t < 0.25 ? t / 0.25 : 1 - (t - 0.25) / 0.75
+  const al = t < 0.3 ? t / 0.3 : 1 - (t - 0.3) / 0.7
   const x = a.ix, y = a.iy
-  const sz = 22 + t * 12
+  const len = 32 + t * 20
 
   ctx.save()
   ctx.globalAlpha = al
   ctx.translate(x, y)
+  ctx.shadowColor = a.color; ctx.shadowBlur = 14
 
-  // 速度線（水平）
-  ctx.strokeStyle = '#cc88ff'; ctx.lineWidth = 1.5
-  ctx.shadowColor = '#9944ff'; ctx.shadowBlur = 8
-  for (let i = -2; i <= 2; i++) {
-    const oy = i * 6
-    ctx.globalAlpha = al * (1 - Math.abs(i) * 0.2)
+  for (let i = 0; i < 3; i++) {
+    const ang = (i / 3) * Math.PI - Math.PI * 0.5 + (t * 0.4)
+    ctx.strokeStyle = i === 1 ? '#ffffff' : a.color
+    ctx.lineWidth   = i === 1 ? 3 : 1.5
     ctx.beginPath()
-    ctx.moveTo(-sz * 1.2, oy)
-    ctx.lineTo(-sz * 0.1, oy)
+    ctx.moveTo(-Math.cos(ang) * len * 0.3, -Math.sin(ang) * len * 0.3)
+    ctx.lineTo( Math.cos(ang) * len,        Math.sin(ang) * len)
     ctx.stroke()
   }
-
-  // 三道刺痕
-  ctx.globalAlpha = al
-  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'
-  ctx.shadowColor = '#cc88ff'; ctx.shadowBlur = 12
-  for (const oy of [-8, 0, 8]) {
-    ctx.beginPath()
-    ctx.moveTo(-sz * 0.7, oy - 4)
-    ctx.lineTo( sz * 0.4, oy + 4)
-    ctx.stroke()
-  }
-
-  // 中心亮點
-  const rg = ctx.createRadialGradient(0, 0, 0, 0, 0, sz * 0.5)
-  rg.addColorStop(0, 'rgba(255,255,255,0.9)')
-  rg.addColorStop(1, 'rgba(180,100,255,0)')
-  ctx.fillStyle = rg
-  ctx.beginPath(); ctx.arc(0, 0, sz * 0.5, 0, Math.PI * 2); ctx.fill()
-
   ctx.shadowBlur = 0
   ctx.restore()
 }
 
-// 狂戰士斧劈：地面衝擊波 + 橙色爆炸
 function _animAxeSlam(ctx, a) {
   const t  = Math.min(a.progress, 1)
-  const al = t < 0.2 ? t / 0.2 : 1 - (t - 0.2) / 0.8
+  const al = t < 0.25 ? t / 0.25 : 1 - (t - 0.25) / 0.75
   const x = a.ix, y = a.iy
-  const sz = 20 + t * 30
+  const r  = 16 + t * 22
 
   ctx.save()
   ctx.globalAlpha = al
+  ctx.translate(x, y)
+  ctx.shadowColor = a.color; ctx.shadowBlur = 16
 
-  // 地面衝擊波（扁橢圓向外擴散）
-  ctx.strokeStyle = '#ff6600'; ctx.lineWidth = 3
-  ctx.shadowColor = '#ff9900'; ctx.shadowBlur = 16
-  for (let i = 0; i < 3; i++) {
-    const r = sz * (0.4 + i * 0.3) * (0.6 + t * 0.6)
-    ctx.globalAlpha = al * (1 - i * 0.28) * (1 - t * 0.5)
+  const rings = 3
+  for (let ri = 0; ri < rings; ri++) {
+    const rr = r * (0.4 + ri * 0.3)
+    ctx.strokeStyle = ri === 0 ? '#ffffff' : a.color
+    ctx.lineWidth   = ri === 0 ? 3 : 1.5
+    ctx.globalAlpha = al * (1 - ri * 0.28)
     ctx.beginPath()
-    ctx.ellipse(x, y, r, r * 0.3, 0, 0, Math.PI * 2)
+    ctx.arc(0, 0, rr, -Math.PI * 0.6, Math.PI * 0.6)
     ctx.stroke()
   }
 
-  // 碎石四散
   ctx.globalAlpha = al
-  ctx.fillStyle = '#ff8833'
-  ctx.shadowColor = '#ffcc44'; ctx.shadowBlur = 8
-  for (let i = 0; i < 8; i++) {
-    const ang = (i / 8) * Math.PI * 2 - Math.PI / 2
-    const dist = sz * (0.5 + t * 0.8)
-    const px2 = x + Math.cos(ang) * dist
-    const py2 = y + Math.sin(ang) * dist * 0.4 - t * 10
-    const rs = 4 * (1 - t * 0.6)
-    if (rs <= 0) continue
-    ctx.beginPath(); ctx.arc(px2, py2, rs, 0, Math.PI * 2); ctx.fill()
+  ctx.strokeStyle = a.color; ctx.lineWidth = 2.5
+  const splinters = 5
+  for (let i = 0; i < splinters; i++) {
+    const ang = (i / splinters - 0.5) * Math.PI * 0.9
+    ctx.beginPath()
+    ctx.moveTo(Math.cos(ang) * r * 0.5, Math.sin(ang) * r * 0.5)
+    ctx.lineTo(Math.cos(ang) * r * 1.2, Math.sin(ang) * r * 1.2)
+    ctx.stroke()
   }
-
-  // 中心白光閃
   ctx.shadowBlur = 0
-  const rg = ctx.createRadialGradient(x, y, 0, x, y, sz * 0.6)
-  rg.addColorStop(0, 'rgba(255,255,255,' + al * 0.9 + ')')
-  rg.addColorStop(0.4, 'rgba(255,150,0,' + al * 0.7 + ')')
-  rg.addColorStop(1, 'rgba(255,80,0,0)')
-  ctx.fillStyle = rg
-  ctx.globalAlpha = 1
-  ctx.beginPath(); ctx.arc(x, y, sz * 0.6, 0, Math.PI * 2); ctx.fill()
-
   ctx.restore()
 }
 
-// ── 模組輔助 ─────────────────────────────────────────────
-function _makeclouds(W, H) {
-  return Array.from({ length: 4 }, () => ({
-    x:   Math.random() * W,
-    y:   TOP_H + 16 + Math.random() * (H * 0.16),
-    w:   60 + Math.random() * 50,
-    h:   22 + Math.random() * 14,
-    spd: 8  + Math.random() * 10,
-  }))
+// ============================================================
+// ENEMY MELEE IMPACT EFFECTS
+// ============================================================
+
+function _animEnemySlam(ctx, a) {
+  const t  = Math.min(a.progress, 1)
+  const al = t < 0.25 ? t / 0.25 : 1 - (t - 0.25) / 0.75
+  const x = a.ix, y = a.iy
+  const r = 14 + t * 24
+
+  ctx.save()
+  ctx.globalAlpha = al
+  ctx.translate(x, y)
+  ctx.shadowColor = a.color; ctx.shadowBlur = 14
+
+  ctx.strokeStyle = a.color; ctx.lineWidth = 3
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke()
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.globalAlpha = al * 0.6
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.6, 0, Math.PI * 2); ctx.stroke()
+
+  ctx.globalAlpha = al
+  for (let i = 0; i < 6; i++) {
+    const ang = (i / 6) * Math.PI * 2
+    ctx.strokeStyle = a.color; ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(Math.cos(ang) * r * 0.8, Math.sin(ang) * r * 0.8)
+    ctx.lineTo(Math.cos(ang) * r * 1.5, Math.sin(ang) * r * 1.5)
+    ctx.stroke()
+  }
+  ctx.shadowBlur = 0
+  ctx.restore()
 }
+
+function _animEnemySlash(ctx, a) {
+  const t  = Math.min(a.progress, 1)
+  const al = t < 0.3 ? t / 0.3 : 1 - (t - 0.3) / 0.7
+  const x = a.ix, y = a.iy
+  const sz = 24 + t * 14
+
+  ctx.save()
+  ctx.globalAlpha = al
+  ctx.translate(x, y)
+  ctx.shadowColor = a.color; ctx.shadowBlur = 12
+
+  for (let i = 0; i < 2; i++) {
+    const ang = (i === 0 ? -0.55 : 0.55) * Math.PI
+    ctx.strokeStyle = i === 0 ? a.color : '#aaddff'
+    ctx.lineWidth   = i === 0 ? 3 : 1.5
+    ctx.beginPath()
+    ctx.moveTo(Math.cos(ang + 0.5) * sz * 0.2, Math.sin(ang + 0.5) * sz * 0.2)
+    ctx.lineTo(Math.cos(ang - 0.5) * sz,       Math.sin(ang - 0.5) * sz)
+    ctx.stroke()
+  }
+  ctx.shadowBlur = 0
+  ctx.restore()
+}
+
+// ============================================================
+// ENEMY PROJECTILE ANIMATIONS
+// ============================================================
+
+function _animBlobShot(ctx, a, px, py) {
+  for (let i = 0; i < a.trail.length; i++) {
+    const tr = a.trail[i]
+    const ta = (i / a.trail.length)
+    ctx.beginPath()
+    ctx.arc(tr.x, tr.y, 6 * ta, 0, Math.PI * 2)
+    ctx.fillStyle = a.color
+    ctx.globalAlpha *= ta * 0.5
+    ctx.fill()
+    ctx.globalAlpha = 1
+  }
+  const t  = Math.min(a.progress, 1)
+  const sq = 1 + Math.sin(t * Math.PI * 4) * 0.25
+  ctx.save()
+  ctx.translate(px, py)
+  ctx.scale(sq, 1 / sq)
+  ctx.shadowColor = a.glow; ctx.shadowBlur = 10
+  const rg = ctx.createRadialGradient(0, 0, 0, 0, 0, 10)
+  rg.addColorStop(0, a.glow)
+  rg.addColorStop(1, a.color)
+  ctx.fillStyle = rg
+  ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.fill()
+  ctx.fillStyle = 'rgba(255,255,255,0.55)'
+  ctx.beginPath(); ctx.arc(-3, -3, 3.5, 0, Math.PI * 2); ctx.fill()
+  ctx.shadowBlur = 0
+  ctx.restore()
+}
+
+function _animKnifeThrow(ctx, a, px, py) {
+  const angle = Math.atan2(a.toY - a.fromY, a.toX - a.fromX)
+  ctx.save()
+  ctx.translate(px, py)
+  ctx.rotate(a.spin)
+  ctx.shadowColor = a.glow; ctx.shadowBlur = 8
+
+  ctx.fillStyle = a.color
+  ctx.beginPath()
+  ctx.moveTo(0, -9); ctx.lineTo(2, 9); ctx.lineTo(0, 6); ctx.lineTo(-2, 9)
+  ctx.closePath(); ctx.fill()
+
+  ctx.fillStyle = '#ffffff'
+  ctx.beginPath(); ctx.ellipse(0, -4, 1.5, 6, 0, 0, Math.PI * 2); ctx.fill()
+  ctx.shadowBlur = 0
+  ctx.restore()
+}
+
+function _animVoidBolt(ctx, a, px, py) {
+  for (let i = 0; i < a.trail.length; i++) {
+    const tr = a.trail[i]
+    const ta = (i / a.trail.length) * 0.5
+    ctx.beginPath(); ctx.arc(tr.x, tr.y, 8 * ta, 0, Math.PI * 2)
+    ctx.fillStyle = a.color
+    ctx.globalAlpha *= ta * 0.6
+    ctx.fill()
+    ctx.globalAlpha = 1
+  }
+  const rg = ctx.createRadialGradient(px, py, 0, px, py, 18)
+  rg.addColorStop(0, '#ffffff'); rg.addColorStop(0.35, a.glow); rg.addColorStop(1, 'transparent')
+  ctx.fillStyle = rg
+  ctx.beginPath(); ctx.arc(px, py, 18, 0, Math.PI * 2); ctx.fill()
+
+  ctx.save()
+  ctx.translate(px, py)
+  ctx.rotate(a.spin)
+  ctx.shadowColor = a.glow; ctx.shadowBlur = 18
+  ctx.strokeStyle = a.color; ctx.lineWidth = 2
+  for (let i = 0; i < 6; i++) {
+    const ang = (i / 6) * Math.PI * 2
+    ctx.beginPath(); ctx.moveTo(0, 0)
+    ctx.lineTo(Math.cos(ang) * 14, Math.sin(ang) * 14)
+    ctx.stroke()
+  }
+  ctx.fillStyle = '#ffffff'
+  ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill()
+  ctx.shadowBlur = 0
+  ctx.restore()
+}
+
+// ============================================================
+// ENEMY MELEE MOVE HELPER
+// ============================================================
+
+function _enemyMoveX(em) {
+  const t = Math.min(em.progress, 1)
+  if (t < em.goEnd) {
+    const pct = t / em.goEnd
+    return em.startX + (em.targetX - em.startX) * _easeInOut(pct)
+  } else if (t < em.returnStart) {
+    return em.targetX
+  } else {
+    const pct = (t - em.returnStart) / (1 - em.returnStart)
+    return em.targetX + (em.startX - em.targetX) * _easeOut(pct)
+  }
+}
+
+// ============================================================
+// COLOR HELPERS
+// ============================================================
 
 function _lighten(hex, amt) {
   const n = parseInt((hex || '#888888').replace('#', ''), 16)
-  const r = Math.min(255, Math.max(0, ((n >> 16) & 0xff) + amt))
-  const g = Math.min(255, Math.max(0, ((n >> 8)  & 0xff) + amt))
-  const b = Math.min(255, Math.max(0, ((n)       & 0xff) + amt))
-  return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')
+  const r = Math.min(255, ((n >> 16) & 0xff) + amt)
+  const g = Math.min(255, ((n >>  8) & 0xff) + amt)
+  const b = Math.min(255, ( n        & 0xff) + amt)
+  return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)
 }
 
-function _darken(hex, amt) { return _lighten(hex, -amt) }
+function _darken(hex, amt) {
+  const n = parseInt((hex || '#888888').replace('#', ''), 16)
+  const r = Math.max(0, ((n >> 16) & 0xff) - amt)
+  const g = Math.max(0, ((n >>  8) & 0xff) - amt)
+  const b = Math.max(0, ( n        & 0xff) - amt)
+  return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)
+}
+
+function _makeclouds(W, H) {
+  const clouds = []
+  for (let i = 0; i < 5; i++) {
+    clouds.push({
+      x:   Math.random() * W,
+      y:   58 + Math.random() * (H * 0.18),
+      w:   60 + Math.random() * 60,
+      h:   18 + Math.random() * 20,
+      spd: 6 + Math.random() * 8,
+    })
+  }
+  return clouds
+}

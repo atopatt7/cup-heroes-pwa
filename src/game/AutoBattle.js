@@ -316,6 +316,46 @@ export function enemyAttack(state) {
   return results
 }
 
+// ── 單一敵人攻擊（供依序攻擊系統使用）────────────────────
+export function enemyAttackOne(state, enemy) {
+  if (!enemy || enemy.hp <= 0) return null
+  const deck = state.player.deck || []
+
+  if (enemy._stunned) {
+    enemy._stunned = false
+    state.log.push({ text: (enemy.nameZh || enemy.name) + ' 眩暈', color: '#88ffcc', frame: state.frame })
+    return { attacker: enemy, damage: 0, stunned: true }
+  }
+
+  let damage = Math.max(1, Math.round(
+    (enemy.atk || 10) * (1 - (state.player.dmgReduction || 0)) - (state.player.def || 0) * 0.3
+  ))
+  const ctx = { damage, attacker: enemy }
+
+  for (const cardId of deck) {
+    const card  = getCardById(cardId)
+    const stars = state.cardStars[cardId] || 1
+    if (card && card.trigger === 'on_hit' && typeof card.apply === 'function') {
+      const msg = card.apply(state, ctx, stars)
+      if (msg) _addEffect(state, 195, 380, msg, _cardColor(card))
+    }
+  }
+
+  if (state.player._ironBlock && Math.random() < state.player._ironBlock.chance) {
+    ctx.damage = 0
+    _addEffect(state, state.player._posX || 150, (state.player._posY || 400) - 50, 'block!', '#88ccff')
+  }
+
+  damage = Math.max(0, ctx.damage)
+  state.player.hp -= damage
+  state.log.push({
+    text:  (enemy.nameZh || enemy.name) + ' atk -' + damage,
+    color: '#ff6666',
+    frame: state.frame,
+  })
+  return { attacker: enemy, damage }
+}
+
 export function getNextTarget(state) {
   return state.enemies.find(e => e.hp > 0) || null
 }

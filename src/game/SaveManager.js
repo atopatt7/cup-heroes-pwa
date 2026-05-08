@@ -1,4 +1,5 @@
 // SaveManager.js — 管理 localStorage 存檔
+import { GAME_CONFIG } from './GameState.js'
 
 const SAVE_KEY = 'cup-heroes-save-v2'
 
@@ -51,7 +52,7 @@ export const SaveManager = {
   },
 
   isUnlocked(heroId) {
-    return this.load().unlockedHeroes.includes(heroId)
+    return true // all heroes unlocked by default
   },
 
   unlockChapter(chapterIdx) {
@@ -93,11 +94,11 @@ export const SaveManager = {
     const data = this.load()
     data.playerExp   = (data.playerExp   || 0) + amount
     data.playerLevel = (data.playerLevel || 1)
-    let expNeeded = data.playerLevel * 100
+    let expNeeded = data.playerLevel * GAME_CONFIG.BASE_EXP_REQUIREMENT
     while (data.playerExp >= expNeeded) {
       data.playerExp   -= expNeeded
       data.playerLevel += 1
-      expNeeded = data.playerLevel * 100
+      expNeeded = data.playerLevel * GAME_CONFIG.BASE_EXP_REQUIREMENT
     }
     this.save(data)
     return { level: data.playerLevel, exp: data.playerExp }

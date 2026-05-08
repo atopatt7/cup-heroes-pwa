@@ -12,7 +12,5 @@ export const druid = {
   colorDark: '#1b5e20',
   startingCards: ['rejuvenation', 'thorns_aura'],
   emoji: '🌿',
-  unlocked: false,
-  unlockHint: '通關第三章解鎖',
-  unlockCondition: 'chapter3_clear',
+  unlocked: true,
 }

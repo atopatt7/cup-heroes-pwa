@@ -12,7 +12,5 @@ export const barbarian = {
   colorDark: '#bf360c',
   startingCards: ['thick_skin', 'undying_rage'],
   emoji: '🪓',
-  unlocked: false,
-  unlockHint: '通關第二章解鎖',
-  unlockCondition: 'chapter2_clear',
+  unlocked: true,
 }

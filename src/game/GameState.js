@@ -33,3 +33,14 @@ export function isBossWave(gs) {
 // 章節總數
 export const TOTAL_CHAPTERS = CHAPTERS.length
 export const WAVES_PER_CHAPTER = 4
+
+// ─── Centralised game configuration ────────────────────────────────────────
+export const GAME_CONFIG = {
+  WAVES_PER_CHAPTER:    15,   // multiplier used when recording best-wave score
+  BASE_EXP_REQUIREMENT: 100,  // base EXP needed per level (scales with playerLevel)
+}
+
+// Returns the absolute wave number used for save / leaderboard comparisons.
+export function calculateTotalWave(chapterIdx, waveIdx) {
+  return chapterIdx * GAME_CONFIG.WAVES_PER_CHAPTER + waveIdx
+}

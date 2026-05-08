@@ -12,6 +12,7 @@ import { SpriteManager }   from './game/SpriteManager.js'
 import { CHAPTERS, getChapterReward } from './data/chapters.js'
 import { getHero }                    from './data/heroes.js'
 import { defaultEquipmentSave, getEquipmentStats, getActiveSetBonuses } from './game/EquipmentManager.js'
+import { calculateTotalWave } from './game/GameState.js'
 
 const TOTAL_CHAPTERS = CHAPTERS.length
 
@@ -109,7 +110,7 @@ export class Game {
   }
 
   showGameOver(gameState) {
-    SaveManager.updateBestWave(gameState.chapterIdx * 15 + (gameState.waveIdx || 0))
+    SaveManager.updateBestWave(calculateTotalWave(gameState.chapterIdx, gameState.waveIdx || 0))
     this._switch(new GameOverScene(
       this.canvas, this.ctx, gameState,
       () => this.showHome()
@@ -117,7 +118,7 @@ export class Game {
   }
 
   showVictory(gameState) {
-    SaveManager.updateBestWave(TOTAL_CHAPTERS * 15)
+    SaveManager.updateBestWave(calculateTotalWave(TOTAL_CHAPTERS, 0))
     this._switch(new VictoryScene(
       this.canvas, this.ctx, gameState,
       () => this.showHome()
@@ -143,7 +144,7 @@ export class Game {
 
       if (nextChapter >= TOTAL_CHAPTERS) {
         // 全部 3 章全通關 → 勝利畫面
-        SaveManager.updateBestWave(TOTAL_CHAPTERS * 15)
+        SaveManager.updateBestWave(calculateTotalWave(TOTAL_CHAPTERS, 0))
         this.showVictory(gameState)
       } else {
         // 解鎖下一章，回到首頁讓玩家選章節

@@ -12,7 +12,5 @@ export const rogue = {
   colorDark: '#4a148c',
   startingCards: ['backstab', 'shadowstep'],
   emoji: '🗡️',
-  unlocked: false,
-  unlockHint: '通關第一章解鎖',
-  unlockCondition: 'chapter1_clear',
+  unlocked: true,
 }

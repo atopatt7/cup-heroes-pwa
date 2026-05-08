@@ -71,19 +71,15 @@ export class HeroSelectScene {
     HERO_LIST.forEach((hero, i) => {
       const cy = startY + i * (cardH + 12)
       if (tx >= cardX && tx <= cardX + cardW && ty >= cy && ty <= cy + cardH) {
-        const unlocked = this.save.unlockedHeroes?.includes(hero.id)
-        if (unlocked) this.selected = i
+        this.selected = i
       }
     })
 
     const btnY = H * 0.89
     if (ty > btnY - 30 && ty < btnY + 30) {
       const hero = HERO_LIST[this.selected]
-      const unlocked = this.save.unlockedHeroes?.includes(hero.id)
-      if (unlocked) {
-        this.stop()
-        this.onSelect(hero.id)   // 只傳 ID，Game.js 用 getHero() 建立副本
-      }
+      this.stop()
+      this.onSelect(hero.id)   // 只傳 ID，Game.js 用 getHero() 建立副本
     }
   }
 
@@ -124,11 +120,9 @@ export class HeroSelectScene {
     HERO_LIST.forEach((hero, i) => {
       const disp     = HERO_DISPLAY[hero.id] || {}
       const cy       = startY + i * (cardH + 12)
-      const unlocked = this.save.unlockedHeroes?.includes(hero.id) ?? false
-      const isSel    = this.selected === i && unlocked
+      const isSel = this.selected === i
 
       ctx.save()
-      if (!unlocked) ctx.globalAlpha = 0.45
 
       // 陰影
       ctx.fillStyle = 'rgba(0,0,0,0.20)'
@@ -216,12 +210,8 @@ export class HeroSelectScene {
         ctx.fillText((c.nameZh || c.name).slice(0, 4), iconX + 18, iconY + 15)
       })
 
-      // 上鎖 / 選中
-      if (!unlocked) {
-        ctx.fillStyle = '#e65100'; ctx.font = 'bold 11px sans-serif'
-        ctx.textAlign = 'right'
-        ctx.fillText(`🔒 ${hero.unlockHint || '未解鎖'}`, cardX + cardW - 10, cy + cardH - 10)
-      } else if (isSel) {
+      // 選中標記
+      if (isSel) {
         ctx.fillStyle = T.goldLight; ctx.font = 'bold 12px sans-serif'
         ctx.textAlign = 'right'
         ctx.fillText('✓ 已選擇', cardX + cardW - 10, cy + cardH - 10)

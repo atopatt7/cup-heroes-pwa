@@ -5,3 +5,7 @@ dist/
 
 # Vite dev server timestamps
 vite.config.js.timestamp-*
+
+# Python cache
+__pycache__/
+*.pyc
